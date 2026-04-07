@@ -3,4 +3,5 @@ idf_component_register(
 	"payload_service.c"
 	"payload_sim.c"
     INCLUDE_DIRS "."
+	REQUIRES comms
 )

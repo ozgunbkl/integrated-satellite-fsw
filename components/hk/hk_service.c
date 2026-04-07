@@ -1,8 +1,12 @@
 
 #include "hk_service.h"
 #include "commands.h"
-#include "tm_manager.h"
-#include "fdir_service.h"
+#include "yamcs_interface.h"
+#include "adcs_service.h"
+#include "eps_telemetry.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -16,6 +20,33 @@ static hk_limits_t s_limits_table[HK_MAX_PARAMS];
 
 static uint32_t report_interval_ms = 5000; // Default: 5 seconds
 static uint32_t last_report_time = 0;
+
+#define HK_MASTER_APID 5U
+
+#define HK_LOG_INFO(fmt, ...) YAMCS_SendEvent("INFO: " fmt, ##__VA_ARGS__)
+#define HK_LOG_WARN(fmt, ...) YAMCS_SendEvent("WARN: " fmt, ##__VA_ARGS__)
+#define HK_LOG_ERROR(fmt, ...) YAMCS_SendEvent("ERROR: " fmt, ##__VA_ARGS__)
+
+static uint32_t hk_float_to_be(float value) {
+    uint32_t raw = 0;
+    memcpy(&raw, &value, sizeof(raw));
+    return htonl(raw);
+}
+
+static void hk_build_master_packet(MasterHK_t *out_packet,
+                                   uint32_t uptime_ms,
+                                   float battery_voltage,
+                                   float battery_soc,
+                                   float battery_temp_c,
+                                   Vector3_t gyro) {
+    out_packet->uptime_ms_be = htonl(uptime_ms);
+    out_packet->battery_voltage_be = hk_float_to_be(battery_voltage);
+    out_packet->battery_soc_be = hk_float_to_be(battery_soc);
+    out_packet->battery_temp_c_be = hk_float_to_be(battery_temp_c);
+    out_packet->gyro_x_be = hk_float_to_be(gyro.x);
+    out_packet->gyro_y_be = hk_float_to_be(gyro.y);
+    out_packet->gyro_z_be = hk_float_to_be(gyro.z);
+}
 
 
 void HK_Init(void){
@@ -96,19 +127,41 @@ int HK_Serialize(uint8_t *buffer, uint16_t buffer_size){
 
 
 void HK_GenerateReport(void) {
-    // Collect data from other systems
-    uint8_t hk_data[4];
-    hk_data[0] = (uint8_t)FDIR_GetCurrentMode(); // Mode from FDIR
-    hk_data[1] = 0xFF; // Mock Battery Level
-    hk_data[2] = 0x00; // Mock Temp
-    hk_data[3] = 0x01; // Mock Status
+    MasterHK_t master_hk;
+    ADCSTelemetry_t adcs_tm;
+    hk_entry_t batt_temp_entry;
 
-    // Send it to Earth via the TM Manager
-    TM_SendReport(0x030, hk_data, 4);
+    memset(&adcs_tm, 0, sizeof(adcs_tm));
+    ADCS_GetTelemetry(&adcs_tm);
+
+    float battery_temp_c = 0.0f;
+    if (HK_ReadParam(HK_ID_BATT_TEMP, &batt_temp_entry) == 0 && batt_temp_entry.is_valid) {
+        battery_temp_c = (float)batt_temp_entry.value;
+    }
+
+    uint32_t uptime_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+
+    hk_build_master_packet(
+        &master_hk,
+        uptime_ms,
+        g_eps_telemetry.f_BusVoltage,
+        g_eps_telemetry.f_StateOfCharge,
+        battery_temp_c,
+        adcs_tm.angular_velocity);
+
+    if (!YAMCS_SendTelemetry(HK_MASTER_APID, &master_hk, sizeof(master_hk))) {
+        HK_LOG_ERROR("HK report TX failed (APID=%u)", HK_MASTER_APID);
+        return;
+    }
+
+    HK_LOG_INFO("HK report sent: uptime_ms=%lu", (unsigned long)uptime_ms);
 }
 
 void HK_ProcessCommand(const uint8_t* payload, uint16_t len) {
-    if (len < 1) return;
+    if (len < 1) {
+        HK_LOG_ERROR("CMD_NACK: HK empty payload");
+        return;
+    }
 
     uint8_t command_id = payload[0];
 
@@ -116,18 +169,26 @@ void HK_ProcessCommand(const uint8_t* payload, uint16_t len) {
         case HK_CMD_SET_INTERVAL:
             if (len >= 2) {
                 // payload[1] is seconds from Earth
-                report_interval_ms = payload[1] * 1000;
-                printf("HK: Interval updated to %ld ms\n", report_interval_ms);
+                const uint8_t interval_s = payload[1];
+                if (interval_s == 0U || interval_s > 60U) {
+                    HK_LOG_WARN("CMD_NACK: HK_SET_INTERVAL invalid=%u", interval_s);
+                    break;
+                }
+                report_interval_ms = interval_s * 1000U;
+                HK_LOG_INFO("CMD_ACK: HK_SET_INTERVAL=%u s", interval_s);
+                HK_LOG_INFO("HK interval updated to %lu ms", (unsigned long)report_interval_ms);
+            } else {
+                HK_LOG_WARN("CMD_NACK: HK_SET_INTERVAL missing arg");
             }
             break;
 
         case HK_CMD_FORCE_REPORT:
-            printf("HK: Manual report requested.\n");
+            HK_LOG_WARN("HK manual report requested");
             HK_GenerateReport();
             break;
 
         default:
-            printf("HK Error: Unknown Command 0x%02X\n", command_id);
+            HK_LOG_ERROR("HK unknown command 0x%02X", command_id);
             break;
     }
 }

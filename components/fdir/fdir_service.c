@@ -1,6 +1,7 @@
 #include "fdir_service.h"
 #include "commands.h"
 #include "time_service.h"
+#include "yamcs_interface.h"
 #include <stdio.h>
 
 #define MAX_REPETITION_THRESHOLD 3
@@ -106,10 +107,20 @@ void FDIR_ProcessCommand(const uint8_t* payload, uint16_t len) {
             printf("FDIR: All fault counters cleared via Ground Command.\n");
             break;
 
-        case 0x52: // Let's add a "Reset System Mode" command
+        case FDIR_CMD_RESET_MODE: // Set system mode from ground
             if (len >= 2) {
-                current_mode = (SystemMode_t)payload[1];
+                const uint8_t requested_mode = payload[1];
+                if (requested_mode > (uint8_t)MODE_CRITICAL) {
+                    printf("FDIR: Invalid mode %u from Ground.\n", (unsigned)requested_mode);
+                    YAMCS_SendEvent("CMD_NACK: FDIR_SET_MODE invalid=%u", (unsigned)requested_mode);
+                    break;
+                }
+
+                current_mode = (SystemMode_t)requested_mode;
                 printf("FDIR: System Mode manually set to %d by Ground.\n", current_mode);
+                YAMCS_SendEvent("CMD_ACK: FDIR_SET_MODE=%u", (unsigned)requested_mode);
+            } else {
+                YAMCS_SendEvent("CMD_NACK: FDIR_SET_MODE missing arg");
             }
             break;
 

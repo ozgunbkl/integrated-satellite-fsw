@@ -6,6 +6,7 @@
 #include "task_defs.h"
 #include "state_manager.h"
 #include "watchdog.h"
+#include "hk_service.h"
 #include <stdio.h>
 
 extern QueueHandle_t xTelemetryQueue;
@@ -19,6 +20,9 @@ void vTelemetryGeneratorTask(void *pvParameters) {
 
     printf("TM Generator Task initialized and running.\n");
     for(;;) {
+        // Always run HK periodic reporting so Yamcs receives live packets even outside nominal mode.
+        HK_RunPeriodic((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
+
         if(get_system_mode() == MODE_NOMINAL){
             printf("TM GEN: -- Running NOMINAL Mission Cycle --\n");
             tx_packet.timestamp = xTaskGetTickCount();

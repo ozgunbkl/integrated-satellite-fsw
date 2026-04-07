@@ -29,6 +29,16 @@ typedef struct{
     uint32_t high_limit;
 } hk_limits_t;
 
+typedef struct __attribute__((packed)) {
+    uint32_t uptime_ms_be;
+    uint32_t battery_voltage_be;
+    uint32_t battery_soc_be;
+    uint32_t battery_temp_c_be;
+    uint32_t gyro_x_be;
+    uint32_t gyro_y_be;
+    uint32_t gyro_z_be;
+} MasterHK_t;
+
 int HK_CheckLimits(hk_param_id_t id);
 
 // 3. Public API

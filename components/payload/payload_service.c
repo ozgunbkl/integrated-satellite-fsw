@@ -4,6 +4,7 @@
 #include "commands.h"
 #include "fdir_service.h"
 #include "time_service.h"
+#include "yamcs_interface.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -129,7 +130,10 @@ PayloadTelemetry_t Payload_GetTelemetry(void) {
 }
 
 void PAYLOAD_ProcessCommandWrapper(const uint8_t* payload, uint16_t len) {
-    if (len < 1) return;
+    if (len < 1) {
+        YAMCS_SendEvent("CMD_NACK: PAYLOAD empty payload");
+        return;
+    }
 
     // The first byte is the Command ID (0 to 4)
     PayloadCmd_t cmd = (PayloadCmd_t)payload[0];
@@ -145,7 +149,13 @@ void PAYLOAD_ProcessCommandWrapper(const uint8_t* payload, uint16_t len) {
 
     if (result != PL_OK) {
         printf("PAYLOAD: Command %d failed with error %d\n", cmd, result);
+        YAMCS_SendEvent("CMD_NACK: PAYLOAD cmd=%u err=%u", (unsigned)cmd, (unsigned)result);
     } else {
         printf("PAYLOAD: Command %d executed successfully.\n", cmd);
+        if (cmd == PL_CMD_SET_RATE) {
+            YAMCS_SendEvent("CMD_ACK: PAYLOAD_SET_RATE=%u", (unsigned)param);
+        } else {
+            YAMCS_SendEvent("CMD_ACK: PAYLOAD cmd=%u", (unsigned)cmd);
+        }
     }
 }
