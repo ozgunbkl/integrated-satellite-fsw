@@ -28,16 +28,15 @@ FAIL'leri veya gerçek seri aktarım/geçmiş kaybı bulgusunu başarılı sayma
   değerlendir:3600.2 s/120 rapor/720 NOMINAL örneği PASS.867 çift dosya/4286 kayıt,
   STOP/SAFE ve tail EMPTY18 Ekim'de tekrar doğrulandı. İlk başlangıcın FAIL'i
   korunur; saatlik PASS onu silmez. [Sonuç](nominal_soak_target.md).
-- [ ] Nihai README, temiz klon/kurulum/test, credential/yayın güvenliği ve
-  **kullanıcı onayıyla en son GitHub yayını**.
-  - [x] Sonuçları ve sınırları README/roadmap/profil/demo belgelerine işle.
-  - [x] Özel ayarlar/eski build olmadan389 dosyalık yerel kaynak snapshot'ından
-    build ve tam52 C/53 header/535 Python+metadata/ELF/native MDB kontrolü PASS.
-    Bağımsız temiz makine veya yayınlanmış repo clone'u değildir.
-  - [ ] Hâlâ kullanılan tarihsel credential'ı kullanıcı değiştirsin; geçmiş/yayın
-    kararı ayrıca verilsin. Router veya Git geçmişi otomatik değiştirilmedi.
-  - [ ] Ayrı son onayla commit/push ve yayımlanan repo/kurulum doğrulaması.
-  [Tamamlanan teknik kontrol ve kalan yayın kapısı](release_preflight.md).
+- [x] Nihai README, özel ayarsız kaynak snapshot'ından build ve tam52 C/53 header/
+  535 Python+metadata/ELF/native MDB kontrolü PASS. Ardından kullanıcının18 Ekim
+  açık onayıyla **normal GitHub yayını** yapıldı: kaynak commit'i `ba0c3e2`.
+  Yeni GitHub shallow clone'unda commit/tree ve389 dosya eşleşti. Ayrı temiz
+  makine/dependency kurulumu veya clone üzerinde ikinci build iddiası yoktur.
+- [ ] Tarihsel credential rotasyonunu kullanıcı tamamlasın; yapılmış/doğrulanmış
+  sayılmaz. Normal kaynak yayını kullanıcı tarafından ayrıca onaylandı ve
+  tamamlandı; router/geçmiş/force-push işlemi yapılmadı.
+  [Teknik kontrol, yayın doğrulaması ve güvenlik sorumluluğu](release_preflight.md).
 
 Aşağıdaki ayrıntılar bu sabit listenin kanıtlarıdır; eski geniş başlıklar yeni bir
 senaryo kuyruğu oluşturmaz. Esas geçmiş ve teknik kapsam [roadmap'tedir](roadmap.md).
@@ -67,7 +66,7 @@ için açık onay verdi; yayın sonucu ayrıca doğrulanır. Geçmiş rewrite/fo
 | Yeni kalıcı recovery | Tek-PANIC paketi 78.422 + 78.797 s; sonraki üç-PANIC BOOT_LOOP paketi 79.610 + 79.734 s, exit 0/RESTORE PASS. Son sayaç7→8→9→10→11→12; FAULT/BAD_RESET/BOOT_LOOP korundu, iki upload boyunca NVS eşitliği doğrulandı. Her çalışan fazda yeni sağlık/onay→SAFE→ayrı NOMINAL geçti. Eski FAIL/kök neden ve kalan matris açık. |
 | Önceki lifecycle paketi | E102/SAFE/inhibit, gerçek owner-clear sonrası SAFE'in korunması, iki reddedilen/bir kabul edilen NOMINAL TC, ayrı rearm/veri/kayıt-retention: 24.0 s PASS. Kendi imajı için [tarihsel kanıt](mission_lifecycle_target.md). |
 | Son yer istasyonu | Source/runtime MDB yedekli güncellendi; mevcut payload RESET handler'ıyla16 komut, native21 postprocessed/10 range reddi geçti. Görev örneği restart; DB/dataDir silinmedi. İlk aktif başlangıçtaki archive-full/DEGRADED olayları korunur. |
-| GitHub / temiz kurulum | Özel dosyasız389 dosyalık yerel kaynak snapshot build/test ve README kapanışı PASS. Push/bağımsız temiz makine doğrulaması yok. Eski credential hâlâ geçerli: kullanıcı rotasyonu, geçmiş/yayın kararı ve son onay bekliyor. [Kontrol](release_preflight.md). |
+| GitHub / temiz kurulum | Özel dosyasız389 dosyalık yerel kaynak snapshot build/test PASS. Kullanıcı onaylı kaynak commit'i `ba0c3e2` normal push ile yayımlandı; yeni GitHub shallow clone commit/tree/389 dosya eşitliği PASS. Bağımsız temiz makine kurulumu yok; credential rotasyonu kullanıcıya ait/doğrulanmadı. [Kontrol](release_preflight.md). |
 | Aktif NOMINAL uzun gözlem | D36E80… imajda3600.2 s/120 rapor/720 NOMINAL PASS; diğer mod/yeni archive-full/DEGRADED/reset marker0, heap150108–150500, ilk-son0, stack min864.867 çift export/4286 kayıt ve STOP/SAFE/EMPTY tekrar doğrulandı. Simüle payload ve örneklenen kaynak kapsamıdır. |
 | Uzun gözlem | C0719A… normal imajda 3600 s / 120 rapor PASS; 720 SAFE örneği, boot13/history98 korundu. Heap son30 dakika150272 baytta sabit, en düşük stack868 bayt. Yeni ciddi hata/reset gözlenmedi. All-NOMINAL veya eski upload kök nedeni kapanışı değildir. [Kanıt](long_run_target.md). |
 | Son NOMINAL hazırlık doğrulaması | Firmware52 C/53 header/533 Python ilk regresyonu; stop marker sonrası535 Python/27 dosya. Filtreli client ve16 komutlu MDB ile535 Python tekrar geçti; native21 postprocessed,49 refusal/39 runner mock/97 negatif profil önceki doğrulamalar. Bilgisayar testleri saatlik kart PASS'i değildir. |

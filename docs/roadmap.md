@@ -27,6 +27,12 @@ var**. Parola rotasyonu kullanıcıya aittir, doğrulanmadı; router/geçmiş ot
 değiştirilmez.18 Ekim'de kullanıcı normal GitHub commit/push için açık onay verdi;
 force-push/geçmiş temizliği veya yeni kart işlemi yok. [Yayın kontrolü](release_preflight.md).
 
+Normal kaynak yayını tamamlandı: `ba0c3e2` → GitHub `main`. Yeni GitHub shallow
+clone'unda commit/tree ve389 kaynak dosyası eşleşti; özel header/CV/export/build
+dosyaları yok. Kapanış belgeleri ayrı doc-only commit ile güncellenir; yeni kart
+işi veya zorunlu test senaryosu açılmaz. Parola rotasyonu kullanıcı sorumluluğunda
+kalır, doğrulanmış sayılmaz. Bağımsız temiz makine kurulumu iddiası yoktur.
+
 ## Önceki kontrol noktası: NOMINAL uygulaması ve tek tekrar
 
 D36E80… normal imaj yüklendi; iki canlı RAM kopyası ve NVS byte eşitliği korundu.

@@ -7,11 +7,17 @@ dalına normal commit/push ile gönderilmesini açıkça onayladı. Parola rotas
 kullanıcının sorumluluğunda kalır ve henüz doğrulanmış sayılmaz. Bu onay Git
 geçmişini temizleme/force-push, router ayarı veya firmware upload yetkisi değildir.
 Hedef API üzerinden `ozgunbkl/integrated-satellite-fsw` olarak doğrulandı; yerel
-ve uzak `main` başlangıçta aynıydı. Yayın sonrası uzak kaynak karşılaştırması
-ayrıca yapılır; aşağıdaki önceki "yayın bekliyor" ifadeleri önceki checkpoint'tir.
+ve uzak `main` başlangıçta aynıydı. Kaynak commit'i
+`ba0c3e27bb68ac000230e7921d546e088e0f1f6f`, normal push ile yayımlandı.
+GitHub'dan yeni shallow `main` kopyası alındı: commit/tree kimliği ve389 dosyanın
+CRLF-normalize içeriği yerel kaynaklarla eşleşti; özel dosyalar bulunmadı.
+Bu, yayımlanan kaynakların doğrulamasıdır; bağımsız temiz makine/dependency
+kurulumu veya clone üzerinde ikinci firmware derlemesi iddiası değildir.
+Aşağıdaki önceki "yayın bekliyor" ifadeleri önceki checkpoint'tir.
 
-Bu adım ESP/seri port/Yamcs gerektirmez; firmware yükleme, reset, TC, commit/push,
-Git geçmişi değiştirme veya router ayarı yapmaz. Yeni hata senaryosu açılmaz.
+İlk teknik preflight ESP/seri port/Yamcs, firmware yükleme, reset, TC veya
+commit/push kullanmadı. Sonraki normal commit/push yukarıdaki ayrı onayla yapıldı.
+Git geçmişi/router değiştirilmedi; yeni hata senaryosu açılmadı.
 
 ## Tamamlanan sonuç değerlendirmesi
 
@@ -58,9 +64,9 @@ server veya kart kullanılmadı. Tam `run_checks.ps1 -BuildMetadata` tekrarı
 geçti. Normal ELF/metadata test izolasyonu doğrulandı. İlk FAIL'in aksine bu tam
 geçiş ve build logları korunur; tamamlanan çıktı sonradan RUNNING diye sunulmaz.
 
-**Teknik kapanış tamamlandı.** Bağımsız temiz makine/remote clone değil, özel
-ayarsız yeni build dizinindeki kaynak snapshot doğrulamasıdır. GitHub'a gönderim
-yapılmadığı için yayının/uzak klonun doğrulaması yapıldı denmez.
+**Teknik kapanış tamamlandı.** Build/test, özel ayarsız yeni build dizinindeki
+kaynak snapshot doğrulamasıdır. Sonraki GitHub shallow clone'un kaynak eşitliği
+ayrıca doğrulandı; bu adımlar bağımsız temiz makine kurulumu sayılmaz.
 
 Test edilen snapshot'ın ilk dosya manifest'i ve tool
 çıktıları `.pio/release-1018/` altında tutulur. Yukarıdaki tek test-fixture
@@ -75,6 +81,12 @@ Dokümantasyon kapanışı sonrası snapshot belgeleri güncellenir; üretim/tes
 config dosyalarının asıl kaynaklarla hash eşitliği tekrar denetlenir. Yeni
 firmware binary yalnız build kanıtıdır, test edilen eski kart imajının yerine
 geçirilmez veya yayımlanmaz.
+
+Commit öncesi `main/eps_harvest.c` içindeki altı satır sonu boşluğu temizlendi;
+test edilen snapshot ile satır-sonu boşlukları hariç aynı olduğu doğrulandı.
+Bu formatlama firmware mantığını veya koruma eşiklerini değiştirmedi. İlk
+preflight raporu tarihsel olarak korunur; sonraki yayın onayı/clone kanıtı
+`local/evidence/publication-20261018/` altında ayrı saklanır.
 
 ## Güvenlik ve yayın kapısı
 
@@ -91,7 +103,7 @@ Sonradan geçmiş temizlemek tek başına daha önce görülebilmiş parolayı i
 Eski sürümlerdeki exposure'u ele almak için repo sahibiyle ayrı history/yayın
 kararı gerekir; otomatik force-push veya geçmiş rewrite yapılmayacak.
 
-Önceki kontrol anında GitHub yayını **yapılmamıştı**; sonraki açık yayın kararı
-yukarıda kaydedildi. Gerçek veri, CV, özel header ve credential içeren
+Normal GitHub yayını ve389 dosyalık kaynak karşılaştırması tamamlandı. Parola
+rotasyonu bu işlemin sonucu olarak doğrulanmış sayılmaz. Gerçek veri, CV, özel header ve credential içeren
 firmware paylaşılmayacak. Bir saatlik PASS, eski upload arızasının kök nedenini
 kapatmaz; sürümün bilinen sınırı olarak kalır.
