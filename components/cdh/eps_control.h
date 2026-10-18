@@ -1,17 +1,10 @@
-// include/eps_control.h
-
 #ifndef EPS_CONTROL_H
 #define EPS_CONTROL_H
 
-#include "freertos/task.h"
-
-// --- Public Function Prototypes ---
-
-// 1. The FreeRTOS Task function (called by xTaskCreate in cdh_main.c)
+// EPS monitoring task entry point; the RTOS dependency belongs to its implementation.
 void vEPSMonitoringTask(void *pvParameters);
 
-// 2. The critical execution function for load shedding (called by the Command Processor)
-// This is the function we will fully implement in your EPS project phase.
+// Legacy diagnostic stub; does not apply a power policy or change the system mode.
 void vEPS_SetSafeModePower(int mode_id); 
 
 #endif // EPS_CONTROL_H

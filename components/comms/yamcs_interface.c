@@ -4,10 +4,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include <arpa/inet.h>
 #include <lwip/sockets.h>
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #define CCSDS_PRIMARY_HEADER_SIZE 6U
 #define YAMCS_MAX_UDP_PACKET 512U
@@ -17,6 +21,9 @@
 
 static const char *TAG = "YAMCS_IF";
 
+static SemaphoreHandle_t s_tm_mutex = NULL;
+static bool s_network_stack_ready = false;
+static bool s_link_connected = false;
 static int s_tm_socket = -1;
 static struct sockaddr_in s_tm_addr;
 static uint16_t s_seq_counter_per_apid[2048] = {0};
@@ -24,6 +31,69 @@ static uint32_t s_tx_count = 0;
 static uint8_t s_tm_packet[YAMCS_MAX_UDP_PACKET];
 static char s_event_text[YAMCS_MAX_EVENT_TEXT];
 static uint8_t s_event_packet[YAMCS_EVENT_PACKET_TEXT_LEN];
+
+bool YAMCS_Init(void) {
+    // Initialization belongs to startup, before any sender task is created.
+    if (s_tm_mutex != NULL) {
+        return false;
+    }
+
+    s_tm_mutex = xSemaphoreCreateMutex();
+    if (s_tm_mutex == NULL) {
+        return false;
+    }
+
+    printf("YAMCS: Telemetry sender initialized.\n");
+    return true;
+}
+
+static bool yamcs_lock_sender(void) {
+    if (s_tm_mutex == NULL || xSemaphoreTake(s_tm_mutex, portMAX_DELAY) != pdTRUE) {
+        ESP_LOGE(TAG, "telemetry sender unavailable");
+        return false;
+    }
+    return true;
+}
+
+bool YAMCS_MarkNetworkStackReady(void) {
+    if (!yamcs_lock_sender()) {
+        return false;
+    }
+    s_network_stack_ready = true;
+    xSemaphoreGive(s_tm_mutex);
+    return true;
+}
+
+bool YAMCS_IsNetworkStackReady(void) {
+    if (!yamcs_lock_sender()) {
+        return false;
+    }
+    const bool ready = s_network_stack_ready;
+    xSemaphoreGive(s_tm_mutex);
+    return ready;
+}
+
+static void yamcs_close_tm_socket(void) {
+    if (s_tm_socket >= 0) {
+        (void)close(s_tm_socket);
+        s_tm_socket = -1;
+    }
+}
+
+bool YAMCS_SetLinkConnected(bool connected) {
+    if (!yamcs_lock_sender()) { return false; }
+    s_link_connected = connected && s_network_stack_ready;
+    if (!s_link_connected) { yamcs_close_tm_socket(); }
+    xSemaphoreGive(s_tm_mutex);
+    return true;
+}
+
+bool YAMCS_IsLinkConnected(void) {
+    if (!yamcs_lock_sender()) { return false; }
+    const bool connected = s_network_stack_ready && s_link_connected;
+    xSemaphoreGive(s_tm_mutex);
+    return connected;
+}
 
 static bool yamcs_open_tm_socket(void) {
     if (s_tm_socket >= 0) {
@@ -33,6 +103,13 @@ static bool yamcs_open_tm_socket(void) {
     s_tm_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s_tm_socket < 0) {
         ESP_LOGE(TAG, "socket() failed, errno=%d", errno);
+        return false;
+    }
+
+    const struct timeval timeout = {.tv_sec = 0, .tv_usec = 250000};
+    if (setsockopt(s_tm_socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0) {
+        ESP_LOGE(TAG, "socket send timeout setup failed, errno=%d", errno);
+        yamcs_close_tm_socket();
         return false;
     }
 
@@ -64,8 +141,13 @@ static void yamcs_build_ccsds_primary_header(uint8_t *out, uint16_t apid, uint16
     memcpy(&out[4], &packet_length, sizeof(packet_length));
 }
 
-bool YAMCS_SendTelemetry(uint16_t apid, void *data, uint16_t len) {
-    if (data == NULL && len > 0U) {
+// Caller holds s_tm_mutex through packet construction and socket transmission.
+static bool yamcs_send_telemetry_locked(uint16_t apid, const void *data, uint16_t len) {
+    if (!s_network_stack_ready || !s_link_connected) {
+        return false;
+    }
+
+    if (data == NULL || len == 0U || apid > 0x07FFU) {
         ESP_LOGE(TAG, "invalid telemetry buffer, apid=%u len=%u", apid, len);
         return false;
     }
@@ -96,6 +178,7 @@ bool YAMCS_SendTelemetry(uint16_t apid, void *data, uint16_t len) {
 
     if (sent != bytes_to_send) {
         ESP_LOGE(TAG, "sendto failed, apid=%u len=%u sent=%d errno=%d", apid, len, sent, errno);
+        yamcs_close_tm_socket(); // No blind resend: UDP has no delivery ACK.
         return false;
     }
 
@@ -110,8 +193,27 @@ bool YAMCS_SendTelemetry(uint16_t apid, void *data, uint16_t len) {
     return true;
 }
 
+bool YAMCS_SendTelemetry(uint16_t apid, void *data, uint16_t len) {
+    if (!yamcs_lock_sender()) {
+        return false;
+    }
+
+    const bool sent = yamcs_send_telemetry_locked(apid, data, len);
+    xSemaphoreGive(s_tm_mutex);
+    return sent;
+}
+
 bool YAMCS_SendEvent(const char *format, ...) {
     if (format == NULL) {
+        return false;
+    }
+
+    if (!yamcs_lock_sender()) {
+        return false;
+    }
+
+    if (!s_network_stack_ready || !s_link_connected) {
+        xSemaphoreGive(s_tm_mutex);
         return false;
     }
 
@@ -121,6 +223,7 @@ bool YAMCS_SendEvent(const char *format, ...) {
     va_end(args);
 
     if (written < 0) {
+        xSemaphoreGive(s_tm_mutex);
         return false;
     }
 
@@ -134,5 +237,9 @@ bool YAMCS_SendEvent(const char *format, ...) {
     }
     memcpy(s_event_packet, s_event_text, copy_len);
 
-    return YAMCS_SendTelemetry(YAMCS_APID_EVENT, s_event_packet, (uint16_t)sizeof(s_event_packet));
+    // Use the internal sender to avoid taking the same non-recursive mutex twice.
+    const bool sent = yamcs_send_telemetry_locked(
+        YAMCS_APID_EVENT, s_event_packet, (uint16_t)sizeof(s_event_packet));
+    xSemaphoreGive(s_tm_mutex);
+    return sent;
 }

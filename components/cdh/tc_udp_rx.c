@@ -5,24 +5,29 @@
 #include "lwip/inet.h"
 #include "satellite_types.h"
 #include "utils.h"
+#include "yamcs_interface.h"
+#include "ccsds_packet.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <sys/time.h>
+#include <unistd.h>
 
-#define TC_RX_PORT 10025
+#define TC_RX_PORT YAMCS_TC_PORT
 #define CCSDS_PRIMARY_HEADER_SIZE 6U
 #define CCSDS_SECONDARY_HEADER_SIZE 8U
 #define INTERNAL_NOCRC_OVERHEAD (CCSDS_PRIMARY_HEADER_SIZE + CCSDS_SECONDARY_HEADER_SIZE)
+#define UDP_TC_MAX_SIZE (TELECOMMAND_MAX_SIZE - CCSDS_SECONDARY_HEADER_SIZE - CCSDS_CRC_SIZE)
 
 extern QueueHandle_t xCommandQueue;
 
 void vYamcsTcReceiverTask(void *pvParameters) {
     (void)pvParameters;
 
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock < 0) {
-        printf("TC_RX: socket() failed\n");
+    if (!YAMCS_IsNetworkStackReady()) {
+        printf("TC_RX: network stack unavailable; receiver skipped.\n");
         vTaskDelete(NULL);
         return;
     }
@@ -33,28 +38,46 @@ void vYamcsTcReceiverTask(void *pvParameters) {
     bind_addr.sin_port = htons(TC_RX_PORT);
     bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if (bind(sock, (const struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
-        printf("TC_RX: bind() failed on port %d\n", TC_RX_PORT);
-        close(sock);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    printf("TC_RX: listening on UDP %d\n", TC_RX_PORT);
-
-    uint8_t rx_buf[64];
+    int sock = -1;
+    // One extra byte makes even truncated oversized datagrams unambiguously too large.
+    uint8_t rx_buf[UDP_TC_MAX_SIZE + 1U];
 
     for (;;) {
+        if (sock < 0) {
+            sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+            const struct timeval timeout = {.tv_sec = 1, .tv_usec = 0};
+            if (sock < 0 || setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
+                bind(sock, (const struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
+                printf("TC_RX: socket setup failed; retry in 1 second.\n");
+                if (sock >= 0) { close(sock); }
+                sock = -1;
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                continue;
+            }
+            printf("TC_RX: listening on UDP %d\n", TC_RX_PORT);
+        }
         struct sockaddr_in src_addr;
         socklen_t src_len = sizeof(src_addr);
         const int rx_len = recvfrom(sock, rx_buf, sizeof(rx_buf), 0, (struct sockaddr *)&src_addr, &src_len);
 
-        if (rx_len <= 0) {
+        if (rx_len < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                printf("TC_RX: receive failed; socket will be reopened.\n");
+                close(sock);
+                sock = -1;
+            }
+            vTaskDelay(pdMS_TO_TICKS(100)); // Avoid spin on persistent socket errors.
+            continue;
+        }
+        if (rx_len == 0) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 
-        if (rx_len < (int)CCSDS_PRIMARY_HEADER_SIZE) {
-            printf("TC_RX: packet too short: %d\n", rx_len);
+        if (rx_len > (int)UDP_TC_MAX_SIZE ||
+            !CCSDS_ValidateUnsegmentedPacket(rx_buf, (uint16_t)rx_len, true, false) ||
+            CCSDS_GetAPID(rx_buf) == APID_IDLE) {
+            printf("TC_RX: invalid wire TC header/length: %d\n", rx_len);
             continue;
         }
 
@@ -70,6 +93,12 @@ void vYamcsTcReceiverTask(void *pvParameters) {
         memset(&tc_packet, 0, sizeof(tc_packet));
 
         memcpy(tc_packet.raw_data, rx_buf, CCSDS_PRIMARY_HEADER_SIZE);
+        // Private queue format adds 8 bytes and a CRC; describe that format in
+        // its header instead of retaining the shorter ground datagram length.
+        tc_packet.raw_data[0] |= 0x08U;
+        const uint16_t internal_data_length = internal_total_len - CCSDS_PRIMARY_HEADER_SIZE - 1U;
+        tc_packet.raw_data[4] = (uint8_t)(internal_data_length >> 8);
+        tc_packet.raw_data[5] = (uint8_t)internal_data_length;
         memset(tc_packet.raw_data + CCSDS_PRIMARY_HEADER_SIZE, 0, CCSDS_SECONDARY_HEADER_SIZE);
 
         if (rx_len > (int)CCSDS_PRIMARY_HEADER_SIZE) {

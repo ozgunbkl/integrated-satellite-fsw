@@ -1,99 +1,170 @@
 #include "fdir_service.h"
 #include "commands.h"
+#include "system_mode.h"
 #include "time_service.h"
 #include "yamcs_interface.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include <stdio.h>
 
-#define MAX_REPETITION_THRESHOLD 3
 #define WARNING_THRESHOLD 3
 
-static SystemMode_t current_mode = MODE_NOMINAL;
 static uint16_t fault_counters[SRC_COUNT];  // One counter for each FaultSource_t
+static SemaphoreHandle_t s_fault_mutex = NULL;
 
-static bool heater_fault_active = true;
+bool FDIR_Init(void) {
+    if (s_fault_mutex != NULL) {
+        return false;
+    }
 
-void FDIR_Init(void) {
-    current_mode = MODE_NOMINAL;
+    s_fault_mutex = xSemaphoreCreateMutex();
+    if (s_fault_mutex == NULL) {
+        return false;
+    }
+
     for (int i = 0; i < SRC_COUNT; i++) {
         fault_counters[i] = 0;
     }
+
+    printf("FDIR: Fault counters initialized.\n");
+    return true;
+}
+
+static bool fdir_lock_counters(TickType_t timeout) {
+    return s_fault_mutex != NULL &&
+           xSemaphoreTake(s_fault_mutex, timeout) == pdTRUE;
 }
 
 void FDIR_ReportFault(FaultReport_t report) {
     
     report.timestamp = TIME_GetSeconds();
 
-    // Safety check: ensure the source index is within bounds
-    if (report.source >= SRC_COUNT) {
+    // Safety check: reject invalid enum values before indexing or mode changes.
+    if ((unsigned int)report.source >= (unsigned int)SRC_COUNT ||
+        (unsigned int)report.severity > (unsigned int)FAULT_FATAL) {
+        printf("FDIR: Rejected invalid fault report (source=%d, severity=%d).\n",
+               (int)report.source,
+               (int)report.severity);
         return; 
     }
 
+    bool recorded = true;
+    if (report.severity >= FAULT_CRITICAL) {
+        recorded = SYSTEM_MODE_RecordFault((uint8_t)report.source, report.fault_code,
+                                          report.severity == FAULT_FATAL, report.timestamp);
+    }
+
     printf("[%lu] FDIR: Fault from Source %d (Severity: %d) Code: 0x%04X\n",
-           report.timestamp,
+           (unsigned long)report.timestamp,
            report.source,
            report.severity,
            report.fault_code);
 
-    // 1. Immediate Action for FATAL
-    if(report.severity == FAULT_FATAL){
-        current_mode = MODE_EMERGENCY;
-        return;
-    }
-
-    // 2. Immediate Action for CRITICAL EPS (Power is life)
-    if(report.source == SRC_EPS && report.severity == FAULT_CRITICAL){
-        current_mode = MODE_SAFE;
+    if (report.severity >= FAULT_CRITICAL) {
+        if (!recorded) printf("FDIR: Fault record unavailable/full; conservative operating inhibit retained.\n");
         return;
     }
 
     // 3. Increment for WARNINGS
     if(report.severity == FAULT_WARNING){
-        fault_counters[report.source]++;
-    }
-}
+        if (!fdir_lock_counters(portMAX_DELAY)) {
+            printf("FDIR: Warning counter unavailable for source %d.\n",
+                   (int)report.source);
+            return;
+        }
 
-
-SystemMode_t FDIR_GetCurrentMode(void) {
-    return current_mode;
-}
-
-static void Trigger_Recovery_Action(FaultSource_t source) {
-    printf("FDIR: Escalating Recovery forSource[%d] - Persistent Limit Reached!\n", source);
-
-    // Recovery Logic: If a warning repeats too much, we degrade the system mode
-    if (current_mode == MODE_NOMINAL) {
-        current_mode = MODE_DEGRADED;
+        if (fault_counters[report.source] < WARNING_THRESHOLD) {
+            fault_counters[report.source]++;
+        }
+        xSemaphoreGive(s_fault_mutex);
     }
 }
 
 void FDIR_Process(void) {
-    // Check every subsystem's fault counter
+    bool recovery_pending[SRC_COUNT] = {false};
+    bool any_pending = false;
+    if (!fdir_lock_counters(pdMS_TO_TICKS(10))) {
+        printf("FDIR: Fault counters unavailable for processing.\n");
+        return;
+    }
+
+    // Keep counters until the decision commits. ACK and new warnings serialize
+    // with this transaction, so no stale snapshot can act after an earlier ACK,
+    // and a new warning cannot be erased by completion of an older batch.
     for (int i = 0; i < SRC_COUNT; i++) {
-        
-        // If a subsystem hits the threshold (e.g., 3 warnings)
         if (fault_counters[i] >= WARNING_THRESHOLD) {
-            
-            // 1. Isolation & Recovery Action
-            Trigger_Recovery_Action((FaultSource_t)i);
-            
-            // 2. Clear the counter
-            fault_counters[i] = 0; 
+            recovery_pending[i] = true;
+            any_pending = true;
+        }
+    }
+
+    // Lock order: FDIR counters -> mode. Quiet transitions have a finite 10 ms
+    // lock wait and no I/O. Never call a logging mode API under the FDIR mutex.
+    // Already DEGRADED also handles the batch; BOOT/safety modes defer it.
+    const bool handled = any_pending &&
+        (SYSTEM_MODE_TransitionQuiet(MODE_NOMINAL, MODE_DEGRADED) ||
+         SYSTEM_MODE_TransitionQuiet(MODE_DEGRADED, MODE_DEGRADED));
+    if (handled) {
+        for (int i = 0; i < SRC_COUNT; i++) {
+            if (recovery_pending[i]) {
+                fault_counters[i] = 0;
+            }
+        }
+    }
+    xSemaphoreGive(s_fault_mutex);
+
+    // Describe the committed decision, not a guarantee of the current mode.
+    for (int i = 0; i < SRC_COUNT; i++) {
+        if (handled && recovery_pending[i]) {
+            printf("FDIR: Warning threshold handled for source %d; DEGRADED decision committed.\n", i);
         }
     }
 }
 
 bool FDIR_HasActiveFaults(void) {
+    if (!fdir_lock_counters(portMAX_DELAY)) {
+        return true;
+    }
+
+    bool has_active_faults = false;
     for (int i = 0; i < SRC_COUNT; i++) {
         if (fault_counters[i] > 0) {
-            return true; // Found a non-zero counter!
+            has_active_faults = true;
+            break;
         }
     }
-    return false; // All counters are zero
+    xSemaphoreGive(s_fault_mutex);
+    if (has_active_faults) return true;
+    bool blocked = true;
+    return !SYSTEM_MODE_HasBlockingFaults(&blocked) || blocked;
 }
 
+bool FDIR_GetActiveFaults(FDIR_ActiveFaultSnapshot_t *out) {
+    return SYSTEM_MODE_GetFaults(out);
+}
+
+bool FDIR_GetFaultRevision(FaultSource_t source, uint16_t code, uint32_t *revision) {
+    return (unsigned int)source < (unsigned int)SRC_COUNT &&
+           SYSTEM_MODE_GetFaultRevision((uint8_t)source, code, revision);
+}
+
+bool FDIR_ResolveCriticalFault(FaultSource_t source, uint16_t code, uint32_t revision) {
+    return (unsigned int)source < (unsigned int)SRC_COUNT &&
+           SYSTEM_MODE_ResolveFault((uint8_t)source, code, revision);
+}
+
+bool FDIR_TryGetFaultRevision(FaultSource_t source, uint16_t code, uint32_t *revision) {
+    return (unsigned int)source < (unsigned int)SRC_COUNT &&
+           SYSTEM_MODE_TryGetFaultRevision((uint8_t)source, code, revision);
+}
+
+bool FDIR_TryResolveCriticalFault(FaultSource_t source, uint16_t code, uint32_t revision) {
+    return (unsigned int)source < (unsigned int)SRC_COUNT &&
+           SYSTEM_MODE_TryResolveFault((uint8_t)source, code, revision);
+}
 
 void FDIR_ProcessCommand(const uint8_t* payload, uint16_t len) {
-    if (len < 1) return;
+    if (payload == NULL || len < 1) return;
 
     uint8_t command_id = payload[0];
 
@@ -101,10 +172,16 @@ void FDIR_ProcessCommand(const uint8_t* payload, uint16_t len) {
         case FDIR_CMD_ACK_FAULT:
             // Earth is acknowledging the issues. 
             // We clear all warning counters to stop escalation.
+            if (!fdir_lock_counters(portMAX_DELAY)) {
+                printf("FDIR: Cannot clear warning counters; service unavailable.\n");
+                YAMCS_SendEvent("CMD_NACK: FDIR_ACK_FAULT unavailable");
+                break;
+            }
             for (int i = 0; i < SRC_COUNT; i++) {
                 fault_counters[i] = 0;
             }
-            printf("FDIR: All fault counters cleared via Ground Command.\n");
+            xSemaphoreGive(s_fault_mutex);
+            printf("FDIR: Warning counters cleared via Ground Command; critical/fatal records retained.\n");
             break;
 
         case FDIR_CMD_RESET_MODE: // Set system mode from ground
@@ -116,9 +193,17 @@ void FDIR_ProcessCommand(const uint8_t* payload, uint16_t len) {
                     break;
                 }
 
-                current_mode = (SystemMode_t)requested_mode;
-                printf("FDIR: System Mode manually set to %d by Ground.\n", current_mode);
-                YAMCS_SendEvent("CMD_ACK: FDIR_SET_MODE=%u", (unsigned)requested_mode);
+                const SystemMode_t new_mode = (SystemMode_t)requested_mode;
+                if (SYSTEM_MODE_Set(new_mode)) {
+                    printf("FDIR: System Mode manually set to %s by Ground.\n",
+                           SYSTEM_MODE_ToString(new_mode));
+                    YAMCS_SendEvent("CMD_ACK: FDIR_SET_MODE=%u", (unsigned)requested_mode);
+                } else {
+                    printf("FDIR: Failed to set System Mode to %s by Ground.\n",
+                           SYSTEM_MODE_ToString(new_mode));
+                    YAMCS_SendEvent("CMD_NACK: FDIR_SET_MODE rejected=%u",
+                                    (unsigned)requested_mode);
+                }
             } else {
                 YAMCS_SendEvent("CMD_NACK: FDIR_SET_MODE missing arg");
             }
@@ -127,18 +212,5 @@ void FDIR_ProcessCommand(const uint8_t* payload, uint16_t len) {
         default:
             printf("FDIR: Unknown Command ID 0x%02X\n", command_id);
             break;
-    }
-}
-
-void FDIR_SetSystemMode(SystemMode_t new_mode) {
-    if (current_mode == new_mode) return; // No change needed
-
-    printf("SYSTEM: Mode changing from %d to %d\n", current_mode, new_mode);
-    current_mode = new_mode;
-
-    // Logic for what happens during the change
-    if (new_mode == MODE_CRITICAL) {
-        // Emergency: Tell ADCS to stop and EPS to shed load
-        // (In a real sat, you'd turn off non-essential switches here)
     }
 }

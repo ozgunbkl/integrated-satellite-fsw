@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdatomic.h>
 
 #define YAMCS_LOG_MIRROR_BUF 256U
 #define YAMCS_LOG_QUEUE_DEPTH 32U
@@ -18,8 +19,7 @@ typedef struct {
     char text[YAMCS_LOG_MIRROR_BUF];
 } YAMCS_LogItem_t;
 
-static bool s_mirror_in_progress = false;
-static bool s_sender_task_started = false;
+static atomic_bool s_sender_task_started = false;
 static QueueHandle_t s_log_queue = NULL;
 
 static void yamcs_log_sender_task(void *arg) {
@@ -28,32 +28,38 @@ static void yamcs_log_sender_task(void *arg) {
     YAMCS_LogItem_t item;
     while (1) {
         if (xQueueReceive(s_log_queue, &item, portMAX_DELAY) == pdTRUE) {
-            s_mirror_in_progress = true;
-            (void)YAMCS_SendEvent("INFO: %s", item.text);
-            s_mirror_in_progress = false;
+            if (YAMCS_IsLinkConnected()) {
+                (void)YAMCS_SendEvent("INFO: %s", item.text);
+            }
         }
     }
 }
 
-static void yamcs_log_start_sender_task_if_needed(void) {
+bool YAMCS_LogInit(void) {
+    // Lifecycle calls are serialized by WIFI_MGR. Publish only after task creation.
     if (s_sender_task_started) {
-        return;
+        return true;
     }
 
     if (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING) {
-        return;
+        return false;
     }
 
     if (s_log_queue == NULL) {
         s_log_queue = xQueueCreate(YAMCS_LOG_QUEUE_DEPTH, sizeof(YAMCS_LogItem_t));
         if (s_log_queue == NULL) {
-            return;
+            return false;
         }
     }
 
     if (xTaskCreate(yamcs_log_sender_task, "YLOG_TX", 3072, NULL, 1, NULL) == pdPASS) {
         s_sender_task_started = true;
+        return true;
     }
+
+    vQueueDelete(s_log_queue);
+    s_log_queue = NULL;
+    return false;
 }
 
 static int yamcs_printf_common(const char *fmt, va_list args) {
@@ -83,7 +89,7 @@ static int yamcs_printf_common(const char *fmt, va_list args) {
         msg[--len] = '\0';
     }
 
-    if (len == 0U || s_mirror_in_progress) {
+    if (len == 0U) {
         return printed;
     }
 
@@ -92,8 +98,7 @@ static int yamcs_printf_common(const char *fmt, va_list args) {
         return printed;
     }
 
-    yamcs_log_start_sender_task_if_needed();
-    if (s_log_queue == NULL) {
+    if (!s_sender_task_started || s_log_queue == NULL || !YAMCS_IsLinkConnected()) {
         return printed;
     }
 
@@ -101,7 +106,7 @@ static int yamcs_printf_common(const char *fmt, va_list args) {
     memset(&item, 0, sizeof(item));
     memcpy(item.text, msg, len);
 
-    // Non-blocking enqueue: if queue is full, drop oldest debug line.
+    // Non-blocking enqueue: if queue is full, drop this newest debug line.
     (void)xQueueSend(s_log_queue, &item, 0);
 
     return printed;

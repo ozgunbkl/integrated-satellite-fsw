@@ -3,3 +3,10 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+local/
+/compile_commands.json
+__pycache__/
+*.pyc
+*.pyo
+/debug.log
+/components/cdh/Integrated_Satellite_FSW.code-workspace

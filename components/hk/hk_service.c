@@ -6,11 +6,10 @@
 #include "eps_telemetry.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <string.h>
-
-uint32_t telemetry_interval_ms = 10000; // Default 10 seconds
 
 // This is a private "Database" - not visible outside this file
 static hk_entry_t s_telemetry_table[HK_MAX_PARAMS];
@@ -18,8 +17,18 @@ static hk_entry_t s_telemetry_table[HK_MAX_PARAMS];
 static hk_limits_t s_limits_table[HK_MAX_PARAMS];
 
 
-static uint32_t report_interval_ms = 5000; // Default: 5 seconds
+#define HK_DEFAULT_INTERVAL_MS 5000U
+static uint32_t report_interval_ms = HK_DEFAULT_INTERVAL_MS;
 static uint32_t last_report_time = 0;
+static SemaphoreHandle_t s_hk_mutex;
+
+static bool hk_lock(void) {
+    return s_hk_mutex != NULL && xSemaphoreTake(s_hk_mutex, pdMS_TO_TICKS(10)) == pdTRUE;
+}
+
+static bool hk_valid_id(hk_param_id_t id) {
+    return (unsigned)id < HK_MAX_PARAMS;
+}
 
 #define HK_MASTER_APID 5U
 
@@ -49,57 +58,71 @@ static void hk_build_master_packet(MasterHK_t *out_packet,
 }
 
 
-void HK_Init(void){
+bool HK_Init(void){
+    // Startup only, before tasks. Never hold this mutex across another service or TX.
+    if (s_hk_mutex == NULL) s_hk_mutex = xSemaphoreCreateMutex();
+    if (!hk_lock()) return false;
     // Clear the table: all values to 0, all timestamps to 0, all is_valid to 0
     memset(s_telemetry_table, 0, sizeof(s_telemetry_table));
+    memset(s_limits_table, 0, sizeof(s_limits_table));
+    report_interval_ms = HK_DEFAULT_INTERVAL_MS;
+    last_report_time = 0;
+    return xSemaphoreGive(s_hk_mutex) == pdTRUE;
 }
 
 int HK_UpdateParam(hk_param_id_t id, uint32_t value, uint32_t current_time){
     // Safety check: Don't write the array bounds
-    if(id >= HK_MAX_PARAMS){
+    if(!hk_valid_id(id) || !hk_lock()){
         return -1;
     }
 
     s_telemetry_table[id].value = value;
     s_telemetry_table[id].timestamp = current_time;
     s_telemetry_table[id].is_valid = 1; // Mark as fresh data
+    xSemaphoreGive(s_hk_mutex);
     return 0; // Success
 }
 
 int HK_ReadParam(hk_param_id_t id, hk_entry_t *out_entry){
     // Safety check and null pointer protection
-    if(id >= HK_MAX_PARAMS || out_entry == NULL){
+    if(!hk_valid_id(id) || out_entry == NULL || !hk_lock()){
         return -1;
     }
 
     // Copy the internal entry to the output pointer
     *out_entry = s_telemetry_table[id];
+    xSemaphoreGive(s_hk_mutex);
 
     return 0;
 }
 
 void HK_SetLimits(hk_param_id_t id, uint32_t low, uint32_t high){
-    if(id < HK_MAX_PARAMS){
+    if(hk_valid_id(id) && low <= high && hk_lock()){
         s_limits_table[id].low_limit = low;
         s_limits_table[id].high_limit = high;
+        xSemaphoreGive(s_hk_mutex);
     }
 
 }
 
 int HK_CheckLimits(hk_param_id_t id) {
     // 1. Safety/Freshness Check
-    if (id >= HK_MAX_PARAMS) {
+    if (!hk_valid_id(id)) {
         return -2; // Invalid ID error
     }
     
+    if (!hk_lock()) return -1;
     if (s_telemetry_table[id].is_valid == 0) {
-        return -1; // Data is stale or hasn't been sampled yet
+        xSemaphoreGive(s_hk_mutex);
+        return -1; // Not sampled; elapsed-time expiry is not implemented.
     }
 
     uint32_t val = s_telemetry_table[id].value;
+    const hk_limits_t limits = s_limits_table[id];
+    xSemaphoreGive(s_hk_mutex);
     
     // 2. Limit Comparison
-    if (val < s_limits_table[id].low_limit || val > s_limits_table[id].high_limit) {
+    if (val < limits.low_limit || val > limits.high_limit) {
         return 1; // ALARM: Out of bounds!
     }
 
@@ -107,7 +130,7 @@ int HK_CheckLimits(hk_param_id_t id) {
 }
 
 int HK_Serialize(uint8_t *buffer, uint16_t buffer_size){
-    if(buffer_size < HK_PACKET_SIZE) return -1;
+    if(buffer == NULL || buffer_size < HK_PACKET_SIZE || !hk_lock()) return -1;
 
     // Did not pack time for simplicity
 
@@ -122,6 +145,7 @@ int HK_Serialize(uint8_t *buffer, uint16_t buffer_size){
         // Pack 8-bit validity status
         buffer[offset++] = s_telemetry_table[i].is_valid;
     }
+    xSemaphoreGive(s_hk_mutex);
     return offset; // Return total bytes packed
 }
 
@@ -131,11 +155,21 @@ void HK_GenerateReport(void) {
     ADCSTelemetry_t adcs_tm;
     hk_entry_t batt_temp_entry;
 
+    // Take independent, bounded snapshots; never nest HK/EPS/ADCS/TX locks.
+    if (HK_ReadParam(HK_ID_BATT_TEMP, &batt_temp_entry) != 0) return;
+    if (xEPSDataMutex == NULL || xSemaphoreTake(xEPSDataMutex, pdMS_TO_TICKS(10)) != pdTRUE) {
+        HK_LOG_WARN("HK report skipped: EPS snapshot unavailable");
+        return;
+    }
+    const float battery_voltage = g_eps_telemetry.f_BusVoltage;
+    const float battery_soc = g_eps_telemetry.f_StateOfCharge;
+    xSemaphoreGive(xEPSDataMutex);
+
     memset(&adcs_tm, 0, sizeof(adcs_tm));
     ADCS_GetTelemetry(&adcs_tm);
 
     float battery_temp_c = 0.0f;
-    if (HK_ReadParam(HK_ID_BATT_TEMP, &batt_temp_entry) == 0 && batt_temp_entry.is_valid) {
+    if (batt_temp_entry.is_valid) {
         battery_temp_c = (float)batt_temp_entry.value;
     }
 
@@ -144,8 +178,8 @@ void HK_GenerateReport(void) {
     hk_build_master_packet(
         &master_hk,
         uptime_ms,
-        g_eps_telemetry.f_BusVoltage,
-        g_eps_telemetry.f_StateOfCharge,
+        battery_voltage,
+        battery_soc,
         battery_temp_c,
         adcs_tm.angular_velocity);
 
@@ -158,7 +192,7 @@ void HK_GenerateReport(void) {
 }
 
 void HK_ProcessCommand(const uint8_t* payload, uint16_t len) {
-    if (len < 1) {
+    if (payload == NULL || len < 1) {
         HK_LOG_ERROR("CMD_NACK: HK empty payload");
         return;
     }
@@ -174,9 +208,15 @@ void HK_ProcessCommand(const uint8_t* payload, uint16_t len) {
                     HK_LOG_WARN("CMD_NACK: HK_SET_INTERVAL invalid=%u", interval_s);
                     break;
                 }
-                report_interval_ms = interval_s * 1000U;
+                if (!hk_lock()) {
+                    HK_LOG_WARN("CMD_NACK: HK state unavailable");
+                    break;
+                }
+                const uint32_t interval_ms = interval_s * 1000U;
+                report_interval_ms = interval_ms;
+                xSemaphoreGive(s_hk_mutex);
                 HK_LOG_INFO("CMD_ACK: HK_SET_INTERVAL=%u s", interval_s);
-                HK_LOG_INFO("HK interval updated to %lu ms", (unsigned long)report_interval_ms);
+                HK_LOG_INFO("HK interval updated to %lu ms", (unsigned long)interval_ms);
             } else {
                 HK_LOG_WARN("CMD_NACK: HK_SET_INTERVAL missing arg");
             }
@@ -196,8 +236,10 @@ void HK_ProcessCommand(const uint8_t* payload, uint16_t len) {
 
 
 void HK_RunPeriodic(uint32_t current_time_ms) {
-    if (current_time_ms - last_report_time >= report_interval_ms) {
-        HK_GenerateReport();
-        last_report_time = current_time_ms;
-    }
+    if (!hk_lock()) return;
+    const bool due = (uint32_t)(current_time_ms - last_report_time) >= report_interval_ms;
+    // Reserve before sending: no duplicate due slot, catch-up burst or hot retry on TX failure.
+    if (due) last_report_time = current_time_ms;
+    xSemaphoreGive(s_hk_mutex);
+    if (due) HK_GenerateReport();
 }

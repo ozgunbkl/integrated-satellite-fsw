@@ -1,5 +1,6 @@
 #include "cdhs_router.h"
 #include "ccsds_packet.h"
+#include "satellite_types.h"
 #include "adcs_service.h"
 #include "eps_commands.h"
 #include "hk_service.h"
@@ -8,21 +9,28 @@
 #include "payload_service.h"
 #include "commands.h"
 #include "time_service.h"
+#include "recovery.h"
 
 #include <stdio.h>
 
 static void handle_internal_cdh_cmd(const uint8_t* payload, uint16_t len);
 
 void CDHS_RoutePacket(const uint8_t* packet_buffer, uint16_t length){
-    if (length < 14) {
+    if (packet_buffer == NULL) {
+        printf("CDHS: Null packet buffer. Dropping.\n");
+        return;
+    }
+
+    if (length < TELECOMMAND_MIN_SIZE || length > TELECOMMAND_MAX_SIZE) {
         FaultReport_t len_fault = {
             .source = SRC_CDH,
             .severity = FAULT_WARNING,
-            .fault_code = FAULT_CDH_PACKET_TOO_SHORT,
+            .fault_code = (length < TELECOMMAND_MIN_SIZE)
+                ? FAULT_CDH_PACKET_TOO_SHORT : FAULT_CDH_ROUTING_ERROR,
             .timestamp = TIME_GetSeconds()
         };
         FDIR_ReportFault(len_fault);
-        printf("CDHS: Packet too short (%d bytes). Dropping.\n", length);
+        printf("CDHS: Invalid telecommand length (%u bytes). Dropping.\n", (unsigned)length);
         return;
     }
     
@@ -30,9 +38,9 @@ void CDHS_RoutePacket(const uint8_t* packet_buffer, uint16_t length){
     uint16_t apid = CCSDS_GetAPID(packet_buffer);
 
     
-    // 2. Skip Primary (6) + Secondary (8) = 14 bytes to get to User Data
-    const uint8_t* userData = packet_buffer + 14; 
-    uint16_t userDataLen = length - 14;
+    // 2. Exclude both the fixed internal header and the trailing CRC.
+    const uint8_t* userData = packet_buffer + CCSDS_HEADER_SIZE;
+    uint16_t userDataLen = length - CCSDS_HEADER_SIZE - CCSDS_CRC_SIZE;
 
     // 3. Post office switch
     switch (apid){
@@ -58,7 +66,9 @@ void CDHS_RoutePacket(const uint8_t* packet_buffer, uint16_t length){
         
         case APID_FDIR:
             printf("CDHS: Routing packet to FDIR...\n");
-            FDIR_ProcessCommand(userData, userDataLen);
+            if (userDataLen && userData[0] == FDIR_CMD_REARM_BOOT)
+                RECOVERY_ProcessCommand(userData, userDataLen, TIME_GetMilliseconds());
+            else FDIR_ProcessCommand(userData, userDataLen);
             break;
 
         case APID_PAYLOAD:

@@ -2,12 +2,12 @@
 #include "commands.h" 
 #include "fdir_service.h"
 #include "time_service.h"
-#include "satellite_types.h"
 #include <stdio.h>
+#include <math.h>
 
 
 void EPS_ProcessCommand(const uint8_t* payload, uint16_t len) {
-    if (len < 1) return;
+    if (payload == NULL || len < 1) return;
 
     uint8_t command_id = payload[0];
 
@@ -16,7 +16,7 @@ void EPS_ProcessCommand(const uint8_t* payload, uint16_t len) {
             if (len >= 2) {
                 uint8_t state = payload[1];
                 // EPS_SetHeaterState(state);
-                printf("EPS: Heater command executed. State: %d\n", state);
+                printf("EPS: Heater command received (stub; no load change). State: %d\n", state);
             } else {
                 // Report malformed command
                 FaultReport_t eps_f = { 
@@ -50,7 +50,7 @@ void EPS_ProcessCommand(const uint8_t* payload, uint16_t len) {
 
 
 void EPS_Monitor(float battery_voltage) {
-    if (battery_voltage < 3.3f) { // Assume 3.3V is critical
+    if (!isfinite(battery_voltage) || battery_voltage < 3.3f) {
         FaultReport_t pwr_fault = {
             .source = SRC_EPS,
             .severity = FAULT_CRITICAL, // High severity!
@@ -59,6 +59,7 @@ void EPS_Monitor(float battery_voltage) {
         };
         FDIR_ReportFault(pwr_fault);
         
-        // This will trigger FDIR to move the whole satellite to MODE_CRITICAL
+        // Existing FDIR EPS critical-fault policy requests SAFE, preserving
+        // EMERGENCY/CRITICAL. The separate CDH monitor owns the 2.5 V CRITICAL path.
     }
 }

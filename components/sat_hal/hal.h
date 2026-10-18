@@ -3,19 +3,19 @@
 #ifndef HAL_H
 #define HAL_H
 
+// RAM-backed test/demo register bank, NOT an ESP-IDF/STM32 hardware driver.
+// I2C/UART mocks process only the first byte, even when len > 1.
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include "hal_config.h"
 // --- HAL_REG: Mock Register Access ---
 
+// Full 8-bit address space (0..255); register definitions belong to hal_config.h.
 uint32_t HAL_REG_Read(uint8_t address);
 void HAL_REG_Write(uint8_t address, uint32_t value);
 
 // --- HAL_GPIO: Digital I/O ---
-
-#define MOCK_REG_GPIO_OUTPUT    (0x04)  // Register for setting pin state (Write-only)
-#define MOCK_REG_GPIO_INPUT     (0x05)  // Register for reading pin state (Read-only)
 
 void HAL_GPIO_Init(uint8_t pin, bool is_output);
 void HAL_GPIO_Write(uint8_t pin, bool state);

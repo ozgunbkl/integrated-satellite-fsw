@@ -1,4 +1,5 @@
 #include "adcs_control.h"
+#include <math.h>
 
 #define BDOT_GAIN 2.5f  // Tuning constant
 #define KP_GAIN 10.0f    // Proportional gain
@@ -9,7 +10,7 @@ Vector3_t Control_BDot(Vector3_t mag_now, Vector3_t mag_prev, float dt) {
     Vector3_t dipole_cmd;
 
     // 1. Calculate rate of change(Derivative)
-    if(dt > 0.0f){
+    if(isfinite(dt) && dt > 0.0f){
         b_dot.x = (mag_now.x - mag_prev.x) / dt;
         b_dot.y = (mag_now.y - mag_prev.y) / dt;
         b_dot.z = (mag_now.z - mag_prev.z) / dt;

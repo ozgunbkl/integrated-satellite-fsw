@@ -10,128 +10,39 @@
 #include "eps_control.h"
 #include "task_defs.h"
 #include "watchdog.h"
+#include "fdir_service.h"
+#include "fdir_task.h"
+#include "simulation_tasks.h"
 #include "eps_telemetry.h"
-#include "state_manager.h"
+#include "eps_sim_model.h"
 #include "esp_log.h"
-#include "esp_event.h"
-#include "esp_netif.h"
-#include "esp_wifi.h"
-#include "nvs_flash.h"
-#include "freertos/event_groups.h"
-#include "lwip/inet.h"
+#include "wifi_service.h"
+#include "startup_core.h"
+#include "startup_resources.h"
+#include "resource_monitor.h"
+#include "recovery_app.h"
 #include <stdlib.h>
 #include <time.h>
 
 
 // --- 1. GLOBAL RESOURCE DEFINITIONS (The Single Source of Truth) ---
 
-#define WIFI_SSID       "SUPERONLINE_Wi-Fi_7KGF"
-#define WIFI_PASSWORD   "dz5xykTNUXyz"
-#define WIFI_MAX_RETRY  10
-
 static const char *TAG = "MAIN";
-static EventGroupHandle_t s_wifi_event_group;
-static int s_wifi_retry_count = 0;
-
-#define WIFI_CONNECTED_BIT BIT0
-
-static void wifi_event_handler(void *arg,
-                               esp_event_base_t event_base,
-                               int32_t event_id,
-                               void *event_data) {
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_wifi_retry_count < WIFI_MAX_RETRY) {
-            esp_wifi_connect();
-            s_wifi_retry_count++;
-            ESP_LOGW(TAG, "Wi-Fi reconnect attempt %d/%d", s_wifi_retry_count, WIFI_MAX_RETRY);
-        } else {
-            ESP_LOGE(TAG, "Wi-Fi connect failed after %d attempts", WIFI_MAX_RETRY);
-        }
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-        printf("MAIN: Wi-Fi connected. ESP32 IP: " IPSTR "\n", IP2STR(&event->ip_info.ip));
-        s_wifi_retry_count = 0;
-        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-    }
-}
-
-static esp_err_t wifi_init_sta(void) {
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    s_wifi_event_group = xEventGroupCreate();
-    if (s_wifi_event_group == NULL) {
-        ESP_LOGE(TAG, "Failed to create Wi-Fi event group");
-        return ESP_FAIL;
-    }
-
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
-
-    wifi_config_t wifi_config = {
-        .sta = {
-            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
-            .pmf_cfg = {
-                .capable = true,
-                .required = false,
-            },
-        },
-    };
-
-    strncpy((char *)wifi_config.sta.ssid, WIFI_SSID, sizeof(wifi_config.sta.ssid));
-    strncpy((char *)wifi_config.sta.password, WIFI_PASSWORD, sizeof(wifi_config.sta.password));
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    EventBits_t bits = xEventGroupWaitBits(
-        s_wifi_event_group,
-        WIFI_CONNECTED_BIT,
-        pdFALSE,
-        pdFALSE,
-        pdMS_TO_TICKS(15000));
-
-    if ((bits & WIFI_CONNECTED_BIT) == 0U) {
-        ESP_LOGE(TAG, "Wi-Fi did not connect within timeout");
-        return ESP_ERR_TIMEOUT;
-    }
-
-    return ESP_OK;
-}
 
 // EPS Data
 EPS_Telemetry_t g_eps_telemetry = {
-    .f_BusVoltage = 8.5f, 
-    .f_StateOfCharge = 50.0f,
+    .f_BusVoltage = EPS_SIM_INITIAL_VOLTAGE,
+    .f_StateOfCharge = EPS_SIM_INITIAL_VOLTAGE / EPS_SIM_MAX_VOLTAGE * 100.0f,
     .f_SolarInputPower = 0.0f,
     .ul_PDU_Register = (PDU_LOAD_PAYLOAD_BIT | PDU_LOAD_HEATER_BIT | PDU_LOAD_COMMS_BIT),
 };
 
-// System State
-SystemMode_t g_current_mode = MODE_NOMINAL;
-
 // Handles
 SemaphoreHandle_t xEPSDataMutex = NULL;
-SemaphoreHandle_t xModeMutex = NULL;
 QueueHandle_t xTelemetryQueue = NULL;
 QueueHandle_t xCommandQueue = NULL;
 
 // --- 2. EXTERNAL TASK PROTOTYPES ---
-extern void vSolarHarvest_Task(void *pvParameters);
 extern void vEPS_Manager_Task(void *pvParameters);
 extern void vCommandInjectionTask(void *pvParameters);
 extern void vDataLoggerTask(void *pvParameters);
@@ -139,6 +50,47 @@ extern void vTelemetryGeneratorTask(void *pvParameters);
 extern void vADCS_Manager_Task(void *pvParameters); 
 extern void vDeploymentTask(void *pvParameters);
 extern void vYamcsTcReceiverTask(void *pvParameters);
+
+typedef struct {
+    TaskFunction_t function;
+    const char *name;
+    configSTACK_DEPTH_TYPE stack_depth;
+    UBaseType_t priority;
+} RequiredTask_t;
+
+static const RequiredTask_t s_required_tasks[] = {
+    // SDK-supervised monitor; 4 KiB covers fault reporting and wrapped printf.
+    {vSoftwareWatchdogTask, "WDT_MON", 4096, 6},
+    {vDeploymentTask, "DEPLOY", 4096, 5},
+    {vEPS_Manager_Task, "EPS_MGMT", 4096, configMAX_PRIORITIES - 1},
+    {vCommandProcessorTask, "CMD_PROC", 4096, 5},
+    {vYamcsTcReceiverTask, "TC_RX", 4096, 4},
+    {vEPSMonitoringTask, "EPS_MON", 2048, 4},
+    {vFDIRTask, "FDIR", FDIR_TASK_STACK_BYTES, 4},
+    {vDataLoggerTask, "DATA_LOG", 4096, 4},
+    {vADCS_Manager_Task, "ADCS_MGMT", 4096, 4},
+    {vTelemetryGeneratorTask, "TM_GEN", 4096, 3},
+    {vCommandInjectionTask, "CMD_INJECT", 4096, 1},
+    {vSolarHarvest_Task, "SOLAR_HARV", 4096, 1},
+};
+
+static void create_required_tasks(void) {
+    const unsigned count = sizeof(s_required_tasks) / sizeof(s_required_tasks[0]);
+    for (unsigned created = 0; created < count; ++created) {
+        const RequiredTask_t *task = &s_required_tasks[created];
+        const BaseType_t result = xTaskCreate(task->function, task->name,
+            task->stack_depth, NULL, task->priority, NULL);
+        if (result != pdPASS) {
+            // Earlier tasks may already have run. No retry, rollback or cleanup:
+            // keep their resources intact until the configured abort/panic reset.
+            ESP_LOGE(TAG,
+                     "Required task creation failed: %s (stack=%lu, priority=%lu, required_created=%u/%u)",
+                     task->name, (unsigned long)task->stack_depth,
+                     (unsigned long)task->priority, created, count);
+            abort();
+        }
+    }
+}
 
 // --- 3. MASTER INITIALIZATION AND LAUNCH ---
 
@@ -149,65 +101,47 @@ void app_main(void) {
 
     printf("--- Integrated Satellite FSW Initialization Started ---\n");
 
-    if (wifi_init_sta() != ESP_OK) {
-        ESP_LOGE(TAG, "Network init failed. Yamcs UDP telemetry will not work.");
+    RECOVERY_APP_Prepare();
+    STARTUP_InitCoreServices();
+
+    // Mandatory resources take priority over optional Wi-Fi/log allocations.
+    StartupResources_t resources;
+    STARTUP_CreateRequiredResources(&resources);
+    xTelemetryQueue = resources.telemetry_queue;
+    xCommandQueue = resources.command_queue;
+    xEPSDataMutex = resources.eps_data_mutex;
+    printf("MAIN: Required queues and EPS mutex ready before Wi-Fi/log initialization.\n");
+
+    const esp_err_t network_result = WIFI_Start();
+    const bool log_mirror_started = WIFI_IsLogMirrorStarted();
+    if (network_result != ESP_OK) {
+        ESP_LOGW(TAG, "Wi-Fi not ready at startup (%s); core startup continues, log mirror skipped.",
+                 esp_err_to_name(network_result));
+    } else if (!log_mirror_started) {
+        ESP_LOGW(TAG, "Log mirror not started; background retry active, core startup continues.");
     }
 
     // Initialize Random Seed for Solar Simulation
     srand((unsigned int)time(NULL));
 
-    // A. Create Queues
-    xTelemetryQueue = xQueueCreate(10, sizeof(HK_Telemetry_t));
-    if (xTelemetryQueue == NULL) {
-        printf("CRITICAL ERROR: Telemetry Queue Failed!\n");
-        return;
-    }
-
-    xCommandQueue = xQueueCreate(5, sizeof(TelecommandPacket_t));
-    if (xCommandQueue == NULL) {
-        printf("CRITICAL ERROR: Command Queue Failed!\n");
-        return;
-    }
-
-    // B. Create Mutexes
-    xEPSDataMutex = xSemaphoreCreateMutex();
-    if (xEPSDataMutex == NULL) {
-        ESP_LOGE("MAIN", "Failed to create EPS Mutex!");
-        return;
-    }
-
-    xModeMutex = xSemaphoreCreateMutex();
-    if (xModeMutex == NULL) {
-        printf("CRITICAL ERROR: Mode Mutex Failed!\n");
-        return;
-    }
-
     // --- 4. TASK CREATION (Priority Hierarchy) ---
 
-    // [PRIO 6] - System Safety: Watchdog must be highest
-    xTaskCreate(vSoftwareWatchdogTask, "WDT_MON", 2048, NULL, 6, NULL);
+    // Do not charge optional network startup time against mission heartbeats.
+    if (!WATCHDOG_Arm()) {
+        ESP_LOGE(TAG, "Failed to arm software watchdog before task creation");
+        abort();
+    }
 
-    xTaskCreate(vDeploymentTask, "DEPLOY", 4096, NULL, 5, NULL);
+    // Start the observer before mission consumers/deployment can select NOMINAL.
+    // It cannot declare health until deployment and mission heartbeats progress.
+    (void)RECOVERY_APP_Start();
+    create_required_tasks();
 
-    // [PRIO configMAX_PRIORITIES - 1] - Power Safety: EPS Manager
-    xTaskCreate(vEPS_Manager_Task, "EPS_MGMT", 4096, NULL, configMAX_PRIORITIES - 1, NULL);
+    if (!RESOURCE_MONITOR_Start(xTelemetryQueue, xCommandQueue)) {
+        ESP_LOGW(TAG, "Resource diagnostics unavailable; mission tasks continue.");
+    }
 
-    // [PRIO 5] - Communications: Command Processor
-    xTaskCreate(vCommandProcessorTask, "CMD_PROC", 4096, NULL, 5, NULL);
-    xTaskCreate(vYamcsTcReceiverTask, "TC_RX", 4096, NULL, 4, NULL);
-
-    // [PRIO 4] - Maintenance: Global EPS Monitoring & Data Logging
-    xTaskCreate(vEPSMonitoringTask, "EPS_MON", 2048, NULL, 4, NULL); 
-    xTaskCreate(vDataLoggerTask, "DATA_LOG", 4096, NULL, 4, NULL);
-
-    xTaskCreate(vADCS_Manager_Task, "ADCS_MGMT", 4096, NULL, 4, NULL);
-
-    // [PRIO 3] - Telemetry Generation
-    xTaskCreate(vTelemetryGeneratorTask, "TM_GEN", 4096, NULL, 3, NULL);
-
-    // [PRIO 1] - Simulation Tools: Command Injection & Solar Harvesting
-    xTaskCreate(vCommandInjectionTask, "CMD_INJECT", 4096, NULL, 1, NULL);
-    xTaskCreate(vSolarHarvest_Task, "SOLAR_HARV", 4096, NULL, 1, NULL);
-
-    printf("--- All Systems Integrated and Running. Start Ground Comms Simulation. ---\n");
+    printf("MAIN: Core tasks created. Network at startup: %s; log mirror: %s.\n",
+           network_result == ESP_OK ? "connected" : "unavailable",
+           log_mirror_started ? "started" : "not started");
 }

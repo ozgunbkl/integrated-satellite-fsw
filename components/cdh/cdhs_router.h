@@ -4,8 +4,10 @@
 #include <stdint.h>
 
 /**
- * @brief The main entry point for the "Brain". 
- * Comms calls this when it has a valid CCSDS packet.
+ * @brief Route a complete internal telecommand after CRC verification.
+ * packet_buffer contains the 14-byte header, command data and trailing 2-byte CRC.
+ * length includes the header and CRC, and must be within the internal TC bounds.
+ * Subsystem handlers receive command data only, without the header or CRC.
  */
 void CDHS_RoutePacket(const uint8_t* packet_buffer, uint16_t length);
 

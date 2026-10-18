@@ -6,4 +6,5 @@ idf_component_register(
 	"adcs_control.c"
 	"adcs_math.c"
     INCLUDE_DIRS "."
+    PRIV_REQUIRES fdir system_mode eps freertos time watchdog fsw_common
 )

@@ -1,0 +1,628 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SpaceSystem name="myproject" xmlns="http://www.omg.org/spec/XTCE/20180204" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.omg.org/spec/XTCE/20180204 https://www.omg.org/spec/XTCE/20180204/SpaceSystem.xsd">
+    <!-- Maintained ESP32 FSW profile. Original simulator MDB is preserved by the installer backup. -->
+    <TelemetryMetaData>
+        <ParameterTypeSet>
+            <AggregateParameterType name="CCSDS_Packet_ID_Type">
+                <MemberList>
+                    <Member name="Version" typeRef="CCSDS_Version_Type" />
+                    <Member name="Type" typeRef="CCSDS_Type_Type" />
+                    <Member name="SecHdrFlag" typeRef="CCSDS_Sec_Hdr_Flag_Type" />
+                    <Member name="APID" typeRef="CCSDS_APID_Type" />
+                </MemberList>
+            </AggregateParameterType>
+            <IntegerParameterType name="CCSDS_Version_Type" signed="false">
+                <IntegerDataEncoding sizeInBits="3" encoding="unsigned" />
+            </IntegerParameterType>
+            <BooleanParameterType name="CCSDS_Type_Type" zeroStringValue="TM" oneStringValue="TC">
+                <IntegerDataEncoding sizeInBits="1" encoding="unsigned" />
+            </BooleanParameterType>
+            <BooleanParameterType name="CCSDS_Sec_Hdr_Flag_Type" zeroStringValue="NotPresent" oneStringValue="Present">
+                <IntegerDataEncoding sizeInBits="1" encoding="unsigned" />
+            </BooleanParameterType>
+            <IntegerParameterType name="CCSDS_APID_Type" signed="false">
+                <IntegerDataEncoding sizeInBits="11" encoding="unsigned" />
+            </IntegerParameterType>
+            <AggregateParameterType name="CCSDS_Packet_Sequence_Type">
+                <MemberList>
+                    <Member name="GroupFlags" typeRef="CCSDS_Group_Flags_Type" />
+                    <Member name="Count" typeRef="CCSDS_Source_Sequence_Count_Type" />
+                </MemberList>
+            </AggregateParameterType>
+            <EnumeratedParameterType name="CCSDS_Group_Flags_Type">
+                <IntegerDataEncoding sizeInBits="2" encoding="unsigned" />
+                <EnumerationList>
+                    <Enumeration value="0" label="Continuation" />
+                    <Enumeration value="1" label="First" />
+                    <Enumeration value="2" label="Last" />
+                    <Enumeration value="3" label="Standalone" />
+                </EnumerationList>
+            </EnumeratedParameterType>
+            <IntegerParameterType name="CCSDS_Source_Sequence_Count_Type" signed="false">
+                <IntegerDataEncoding sizeInBits="14" encoding="unsigned" />
+            </IntegerParameterType>
+            <IntegerParameterType name="CCSDS_Packet_Length_Type" signed="false" initialValue="0">
+                <UnitSet>
+                    <Unit description="Size">Octets</Unit>
+                </UnitSet>
+                <IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+            </IntegerParameterType>
+            <IntegerParameterType name="uint32_t" signed="false">
+                <IntegerDataEncoding encoding="unsigned" sizeInBits="32" byteOrder="mostSignificantByteFirst" />
+            </IntegerParameterType>
+            <FloatParameterType name="float_t">
+                <FloatDataEncoding sizeInBits="32" byteOrder="mostSignificantByteFirst" encoding="IEEE754_1985" />
+            </FloatParameterType>
+            <!-- HK-specific engineering metadata; generic transfer IDs stay unitless. -->
+            <IntegerParameterType name="HK_UptimeType" signed="false">
+                <UnitSet><Unit>ms</Unit></UnitSet>
+                <IntegerDataEncoding encoding="unsigned" sizeInBits="32" byteOrder="mostSignificantByteFirst" />
+            </IntegerParameterType>
+            <FloatParameterType name="HK_VoltageType">
+                <UnitSet><Unit>V</Unit></UnitSet>
+                <FloatDataEncoding sizeInBits="32" byteOrder="mostSignificantByteFirst" encoding="IEEE754_1985" />
+            </FloatParameterType>
+            <FloatParameterType name="HK_SOCType">
+                <UnitSet><Unit>%</Unit></UnitSet>
+                <FloatDataEncoding sizeInBits="32" byteOrder="mostSignificantByteFirst" encoding="IEEE754_1985" />
+            </FloatParameterType>
+            <FloatParameterType name="HK_TemperatureType">
+                <UnitSet><Unit>degC</Unit></UnitSet>
+                <FloatDataEncoding sizeInBits="32" byteOrder="mostSignificantByteFirst" encoding="IEEE754_1985" />
+            </FloatParameterType>
+            <FloatParameterType name="HK_AngularRateType">
+                <UnitSet><Unit>rad/s</Unit></UnitSet>
+                <FloatDataEncoding sizeInBits="32" byteOrder="mostSignificantByteFirst" encoding="IEEE754_1985" />
+            </FloatParameterType>
+
+            <StringParameterType name="EventMessageType">
+                <StringDataEncoding encoding="UTF-8">
+                    <SizeInBits>
+                        <Fixed>
+                            <FixedValue>512</FixedValue>
+                        </Fixed>
+                    </SizeInBits>
+                </StringDataEncoding>
+            </StringParameterType>
+            <IntegerParameterType name="ArchiveU8Type" signed="false">
+                <IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+            </IntegerParameterType>
+            <IntegerParameterType name="ArchiveU16Type" signed="false">
+                <IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+            </IntegerParameterType>
+            <BinaryParameterType name="ArchivePayloadType">
+                <BinaryDataEncoding>
+                    <SizeInBits>
+                        <DynamicValue>
+                            <ParameterInstanceRef parameterRef="ArchivePayloadLength" useCalibratedValue="false" />
+                            <LinearAdjustment slope="8" intercept="0" />
+                        </DynamicValue>
+                    </SizeInBits>
+                </BinaryDataEncoding>
+            </BinaryParameterType>
+            <IntegerParameterType name="TransferU64Type" signed="false" sizeInBits="64">
+                <IntegerDataEncoding sizeInBits="64" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+            </IntegerParameterType>
+            <BinaryParameterType name="TransferPayloadType">
+                <BinaryDataEncoding><SizeInBits><DynamicValue>
+                    <ParameterInstanceRef parameterRef="TransferLength" useCalibratedValue="false" />
+                    <LinearAdjustment slope="8" intercept="0" />
+                </DynamicValue></SizeInBits></BinaryDataEncoding>
+            </BinaryParameterType>
+        </ParameterTypeSet>
+
+        <ParameterSet>
+            <Parameter name="CCSDS_Packet_ID" parameterTypeRef="CCSDS_Packet_ID_Type" />
+            <Parameter name="CCSDS_Packet_Sequence" parameterTypeRef="CCSDS_Packet_Sequence_Type" />
+            <Parameter name="CCSDS_Packet_Length" parameterTypeRef="CCSDS_Packet_Length_Type" />
+            <Parameter name="HK_UptimeMs" parameterTypeRef="HK_UptimeType" shortDescription="Boot-relative unsigned 32-bit milliseconds; wraps, not absolute time" />
+            <Parameter name="HK_BatteryVoltage" parameterTypeRef="HK_VoltageType" shortDescription="EPS simulation battery voltage" />
+            <Parameter name="HK_BatterySOC" parameterTypeRef="HK_SOCType" shortDescription="EPS simulation state of charge in percent, not a 0..1 fraction" />
+            <Parameter name="HK_BatteryTempC" parameterTypeRef="HK_TemperatureType" shortDescription="HK temperature entry; 0 is the placeholder when unset, no validity bit on wire" />
+            <Parameter name="HK_GyroX" parameterTypeRef="HK_AngularRateType" shortDescription="ADCS simulation angular rate X; radians per second, not degrees" />
+            <Parameter name="HK_GyroY" parameterTypeRef="HK_AngularRateType" shortDescription="ADCS simulation angular rate Y; radians per second, not degrees" />
+            <Parameter name="HK_GyroZ" parameterTypeRef="HK_AngularRateType" shortDescription="ADCS simulation angular rate Z; radians per second, not degrees" />
+            <Parameter name="EventMessage" parameterTypeRef="EventMessageType" />
+            <Parameter name="ArchiveVersion" parameterTypeRef="ArchiveU8Type" />
+            <Parameter name="ArchiveIndex" parameterTypeRef="ArchiveU16Type" />
+            <Parameter name="ArchiveRecordId" parameterTypeRef="ArchiveU16Type" />
+            <Parameter name="ArchivePayloadLength" parameterTypeRef="ArchiveU16Type" />
+            <Parameter name="ArchivePayloadCRC" parameterTypeRef="ArchiveU16Type" />
+            <Parameter name="ArchivePayload" parameterTypeRef="ArchivePayloadType" />
+            <Parameter name="TransferVersion" parameterTypeRef="ArchiveU8Type" />
+            <Parameter name="TransferOperation" parameterTypeRef="ArchiveU8Type" />
+            <Parameter name="TransferStatus" parameterTypeRef="ArchiveU8Type" />
+            <Parameter name="TransferBootId" parameterTypeRef="TransferU64Type" />
+            <Parameter name="TransferId" parameterTypeRef="uint32_t" />
+            <Parameter name="TransferRequestId" parameterTypeRef="uint32_t" />
+            <Parameter name="TransferDigest" parameterTypeRef="uint32_t" />
+            <Parameter name="TransferRecordCount" parameterTypeRef="ArchiveU16Type" />
+            <Parameter name="TransferIndex" parameterTypeRef="ArchiveU16Type" />
+            <Parameter name="TransferRecordId" parameterTypeRef="ArchiveU16Type" />
+            <Parameter name="TransferLength" parameterTypeRef="ArchiveU16Type" />
+            <Parameter name="TransferCRC" parameterTypeRef="ArchiveU16Type" />
+            <Parameter name="TransferPayload" parameterTypeRef="TransferPayloadType" />
+        </ParameterSet>
+
+        <ContainerSet>
+            <SequenceContainer abstract="true" name="CCSDSPacket">
+                <EntryList>
+                    <ParameterRefEntry parameterRef="CCSDS_Packet_ID" />
+                    <ParameterRefEntry parameterRef="CCSDS_Packet_Sequence" />
+                    <ParameterRefEntry parameterRef="CCSDS_Packet_Length" />
+                </EntryList>
+            </SequenceContainer>
+
+            <SequenceContainer name="TelemetryPacket">
+                <EntryList />
+                <BaseContainer containerRef="CCSDSPacket">
+                    <RestrictionCriteria>
+                        <ComparisonList>
+                            <Comparison parameterRef="CCSDS_Packet_ID.Version" value="0" useCalibratedValue="false" />
+                            <Comparison parameterRef="CCSDS_Packet_ID.Type" value="0" useCalibratedValue="false" />
+                            <Comparison parameterRef="CCSDS_Packet_ID.SecHdrFlag" value="0" useCalibratedValue="false" />
+                            <Comparison parameterRef="CCSDS_Packet_Sequence.GroupFlags" value="3" useCalibratedValue="false" />
+                        </ComparisonList>
+                    </RestrictionCriteria>
+                </BaseContainer>
+            </SequenceContainer>
+
+            <SequenceContainer name="MasterHKContainer">
+                <EntryList>
+                    <ParameterRefEntry parameterRef="HK_UptimeMs">
+                        <LocationInContainerInBits referenceLocation="containerStart">
+                            <FixedValue>48</FixedValue>
+                        </LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="HK_BatteryVoltage">
+                        <LocationInContainerInBits referenceLocation="containerStart">
+                            <FixedValue>80</FixedValue>
+                        </LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="HK_BatterySOC">
+                        <LocationInContainerInBits referenceLocation="containerStart">
+                            <FixedValue>112</FixedValue>
+                        </LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="HK_BatteryTempC">
+                        <LocationInContainerInBits referenceLocation="containerStart">
+                            <FixedValue>144</FixedValue>
+                        </LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="HK_GyroX">
+                        <LocationInContainerInBits referenceLocation="containerStart">
+                            <FixedValue>176</FixedValue>
+                        </LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="HK_GyroY">
+                        <LocationInContainerInBits referenceLocation="containerStart">
+                            <FixedValue>208</FixedValue>
+                        </LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="HK_GyroZ">
+                        <LocationInContainerInBits referenceLocation="containerStart">
+                            <FixedValue>240</FixedValue>
+                        </LocationInContainerInBits>
+                    </ParameterRefEntry>
+                </EntryList>
+                <BaseContainer containerRef="TelemetryPacket">
+                    <RestrictionCriteria>
+                        <Comparison parameterRef="CCSDS_Packet_ID.APID" value="5" />
+                    </RestrictionCriteria>
+                </BaseContainer>
+            </SequenceContainer>
+
+            <SequenceContainer name="EventPacket">
+                <EntryList>
+                    <ParameterRefEntry parameterRef="EventMessage" />
+                </EntryList>
+                <BaseContainer containerRef="TelemetryPacket">
+                    <RestrictionCriteria>
+                        <Comparison parameterRef="CCSDS_Packet_ID.APID" value="2000" />
+                    </RestrictionCriteria>
+                </BaseContainer>
+            </SequenceContainer>
+
+            <SequenceContainer name="ArchiveRecordContainer" shortDescription="Archive v1 envelope; CRC field covers payload only, not validated by XTCE">
+                <EntryList>
+                    <ParameterRefEntry parameterRef="ArchiveVersion">
+                        <LocationInContainerInBits referenceLocation="containerStart"><FixedValue>48</FixedValue></LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="ArchiveIndex">
+                        <LocationInContainerInBits referenceLocation="containerStart"><FixedValue>56</FixedValue></LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="ArchiveRecordId">
+                        <LocationInContainerInBits referenceLocation="containerStart"><FixedValue>72</FixedValue></LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="ArchivePayloadLength">
+                        <LocationInContainerInBits referenceLocation="containerStart"><FixedValue>88</FixedValue></LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="ArchivePayloadCRC">
+                        <LocationInContainerInBits referenceLocation="containerStart"><FixedValue>104</FixedValue></LocationInContainerInBits>
+                    </ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="ArchivePayload">
+                        <LocationInContainerInBits referenceLocation="containerStart"><FixedValue>120</FixedValue></LocationInContainerInBits>
+                    </ParameterRefEntry>
+                </EntryList>
+                <BaseContainer containerRef="TelemetryPacket">
+                    <RestrictionCriteria><Comparison parameterRef="CCSDS_Packet_ID.APID" value="96" /></RestrictionCriteria>
+                </BaseContainer>
+            </SequenceContainer>
+            <SequenceContainer name="ArchiveTransferContainer" shortDescription="Transfer v1 status/manifest/record; CRC and digest are not automatically validated by XTCE">
+                <EntryList>
+                    <ParameterRefEntry parameterRef="TransferVersion"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>48</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferOperation"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>56</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferStatus"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>64</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferBootId"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>72</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferId"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>136</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferRequestId"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>168</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferDigest"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>200</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferRecordCount"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>232</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferIndex"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>248</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferRecordId"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>264</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferLength"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>280</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferCRC"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>296</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                    <ParameterRefEntry parameterRef="TransferPayload"><LocationInContainerInBits referenceLocation="containerStart"><FixedValue>312</FixedValue></LocationInContainerInBits></ParameterRefEntry>
+                </EntryList>
+                <BaseContainer containerRef="TelemetryPacket">
+                    <RestrictionCriteria><Comparison parameterRef="CCSDS_Packet_ID.APID" value="97" /></RestrictionCriteria>
+                </BaseContainer>
+            </SequenceContainer>
+        </ContainerSet>
+
+        <!-- Simulator-only parameters/algorithms are not loaded in this flight-software profile. -->
+    </TelemetryMetaData>
+
+    <CommandMetaData>
+        <ArgumentTypeSet>
+            <IntegerArgumentType name="CCSDS_Version_Type" signed="false">
+                <IntegerDataEncoding sizeInBits="3" encoding="unsigned" />
+            </IntegerArgumentType>
+            <BooleanArgumentType name="CCSDS_Type_Type" zeroStringValue="TM" oneStringValue="TC">
+                <IntegerDataEncoding sizeInBits="1" encoding="unsigned" />
+            </BooleanArgumentType>
+            <BooleanArgumentType name="CCSDS_Sec_Hdr_Flag_Type" zeroStringValue="NotPresent" oneStringValue="Present">
+                <IntegerDataEncoding sizeInBits="1" encoding="unsigned" />
+            </BooleanArgumentType>
+            <IntegerArgumentType name="CCSDS_APID_Type" signed="false">
+                <IntegerDataEncoding sizeInBits="11" encoding="unsigned" />
+            </IntegerArgumentType>
+            <EnumeratedArgumentType name="CCSDS_Group_Flags_Type">
+                <IntegerDataEncoding sizeInBits="2" encoding="unsigned" />
+                <EnumerationList>
+                    <Enumeration value="0" label="Continuation" />
+                    <Enumeration value="1" label="First" />
+                    <Enumeration value="2" label="Last" />
+                    <Enumeration value="3" label="Standalone" />
+                </EnumerationList>
+            </EnumeratedArgumentType>
+            <IntegerArgumentType name="ArchiveIndex_Type" signed="false">
+                <IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+                <ValidRangeSet>
+                    <ValidRange minInclusive="0" maxInclusive="65535" />
+                </ValidRangeSet>
+            </IntegerArgumentType>
+            <IntegerArgumentType name="HKIntervalSeconds_Type" signed="false">
+                <IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+                <ValidRangeSet>
+                    <ValidRange minInclusive="1" maxInclusive="60" />
+                </ValidRangeSet>
+            </IntegerArgumentType>
+            <IntegerArgumentType name="PayloadRate_Type" signed="false">
+                <IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+                <ValidRangeSet>
+                    <ValidRange minInclusive="1" maxInclusive="10" />
+                </ValidRangeSet>
+            </IntegerArgumentType>
+            <IntegerArgumentType name="ADCSMode_Type" signed="false">
+                <IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+                <ValidRangeSet><ValidRange minInclusive="0" maxInclusive="2" /></ValidRangeSet>
+            </IntegerArgumentType>
+            <IntegerArgumentType name="SystemMode_Type" signed="false">
+                <IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+                <ValidRangeSet>
+                    <ValidRange minInclusive="0" maxInclusive="5" />
+                </ValidRangeSet>
+            </IntegerArgumentType>
+            <IntegerArgumentType name="TransferBoot_Type" signed="false" sizeInBits="64">
+                <IntegerDataEncoding sizeInBits="64" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+                <!-- Yamcs 5.12 reads range attributes as signed Java longs; -1 is the unsigned 64-bit maximum. -->
+                <ValidRangeSet><ValidRange minInclusive="1" maxInclusive="-1" /></ValidRangeSet>
+            </IntegerArgumentType>
+            <IntegerArgumentType name="TransferId_Type" signed="false" sizeInBits="32">
+                <IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+                <ValidRangeSet><ValidRange minInclusive="1" maxInclusive="4294967295" /></ValidRangeSet>
+            </IntegerArgumentType>
+            <IntegerArgumentType name="TransferU32_Type" signed="false" sizeInBits="32">
+                <IntegerDataEncoding sizeInBits="32" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+                <ValidRangeSet><ValidRange minInclusive="0" maxInclusive="4294967295" /></ValidRangeSet>
+            </IntegerArgumentType>
+            <IntegerArgumentType name="TransferCount_Type" signed="false" sizeInBits="16">
+                <IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+                <ValidRangeSet><ValidRange minInclusive="1" maxInclusive="30" /></ValidRangeSet>
+            </IntegerArgumentType>
+            <IntegerArgumentType name="TransferIndex_Type" signed="false" sizeInBits="16">
+                <IntegerDataEncoding sizeInBits="16" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+                <ValidRangeSet><ValidRange minInclusive="0" maxInclusive="29" /></ValidRangeSet>
+            </IntegerArgumentType>
+            <IntegerArgumentType name="TransferConfirmKey_Type" signed="false" sizeInBits="8">
+                <IntegerDataEncoding sizeInBits="8" encoding="unsigned" byteOrder="mostSignificantByteFirst" />
+                <ValidRangeSet><ValidRange minInclusive="165" maxInclusive="165" /></ValidRangeSet>
+            </IntegerArgumentType>
+        </ArgumentTypeSet>
+
+        <MetaCommandSet>
+            <MetaCommand name="CCSDSPacket" abstract="true">
+                <ArgumentList>
+                    <Argument argumentTypeRef="CCSDS_Version_Type" name="CCSDS_Version" />
+                    <Argument argumentTypeRef="CCSDS_Type_Type" name="CCSDS_Type" />
+                    <Argument argumentTypeRef="CCSDS_Sec_Hdr_Flag_Type" name="CCSDS_Sec_Hdr_Flag" />
+                    <Argument argumentTypeRef="CCSDS_APID_Type" name="CCSDS_APID" />
+                    <Argument argumentTypeRef="CCSDS_Group_Flags_Type" name="CCSDS_Group_Flags" />
+                </ArgumentList>
+                <CommandContainer name="CCSDSPacket">
+                    <EntryList>
+                        <ArgumentRefEntry argumentRef="CCSDS_Version" />
+                        <ArgumentRefEntry argumentRef="CCSDS_Type" />
+                        <ArgumentRefEntry argumentRef="CCSDS_Sec_Hdr_Flag" />
+                        <ArgumentRefEntry argumentRef="CCSDS_APID" />
+                        <ArgumentRefEntry argumentRef="CCSDS_Group_Flags" />
+                        <FixedValueEntry name="CCSDS_Source_Sequence_Count" binaryValue="0000" sizeInBits="14" />
+                        <FixedValueEntry name="CCSDS_Packet_Length" binaryValue="0000" sizeInBits="16" />
+                    </EntryList>
+                </CommandContainer>
+            </MetaCommand>
+
+            <MetaCommand name="ARCHIVE_GET_BY_INDEX" shortDescription="Read one archived record without removing it; zero-based index">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket">
+                    <ArgumentAssignmentList>
+                        <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                        <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                        <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                        <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="96" />
+                        <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                    </ArgumentAssignmentList>
+                </BaseMetaCommand>
+                <ArgumentList>
+                    <Argument argumentTypeRef="ArchiveIndex_Type" name="RecordIndex" shortDescription="Zero-based archive record index (0..65535)" />
+                </ArgumentList>
+                <CommandContainer name="ARCHIVE_GET_BY_INDEX">
+                    <EntryList>
+                        <FixedValueEntry name="ArchiveCmdId" binaryValue="30" sizeInBits="8" />
+                        <ArgumentRefEntry argumentRef="RecordIndex" />
+                    </EntryList>
+                    <BaseContainer containerRef="CCSDSPacket" />
+                </CommandContainer>
+            </MetaCommand>
+
+            <MetaCommand name="ARCHIVE_BEGIN_TRANSFER" shortDescription="Begin/retry a retained prefix; no deletion">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="96" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+                <ArgumentList><Argument name="RequestId" argumentTypeRef="TransferU32_Type" /></ArgumentList>
+                <CommandContainer name="ARCHIVE_BEGIN_TRANSFER"><EntryList>
+                    <FixedValueEntry name="TransferCommandId" binaryValue="31" sizeInBits="8" />
+                    <ArgumentRefEntry argumentRef="RequestId" />
+                </EntryList><BaseContainer containerRef="CCSDSPacket" /></CommandContainer>
+            </MetaCommand>
+
+            <MetaCommand name="ARCHIVE_PENDING_TRANSFER" shortDescription="Discover active transfer; no state change or deletion">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="96" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+
+                <CommandContainer name="ARCHIVE_PENDING_TRANSFER"><EntryList>
+                    <FixedValueEntry name="TransferCommandId" binaryValue="32" sizeInBits="8" />
+
+                </EntryList><BaseContainer containerRef="CCSDSPacket" /></CommandContainer>
+            </MetaCommand>
+
+            <MetaCommand name="ARCHIVE_READ_TRANSFER" shortDescription="Read one record of the exact manifest; no deletion">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="96" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+                <ArgumentList><Argument name="BootId" argumentTypeRef="TransferBoot_Type" /><Argument name="TransferId" argumentTypeRef="TransferId_Type" /><Argument name="RequestId" argumentTypeRef="TransferU32_Type" /><Argument name="Digest" argumentTypeRef="TransferU32_Type" /><Argument name="RecordCount" argumentTypeRef="TransferCount_Type" /><Argument name="RecordIndex" argumentTypeRef="TransferIndex_Type" /></ArgumentList>
+                <CommandContainer name="ARCHIVE_READ_TRANSFER"><EntryList>
+                    <FixedValueEntry name="TransferCommandId" binaryValue="33" sizeInBits="8" />
+                    <ArgumentRefEntry argumentRef="BootId" />
+                    <ArgumentRefEntry argumentRef="TransferId" />
+                    <ArgumentRefEntry argumentRef="RequestId" />
+                    <ArgumentRefEntry argumentRef="Digest" />
+                    <ArgumentRefEntry argumentRef="RecordCount" />
+                    <ArgumentRefEntry argumentRef="RecordIndex" />
+                </EntryList><BaseContainer containerRef="CCSDSPacket" /></CommandContainer>
+            </MetaCommand>
+
+            <MetaCommand name="ARCHIVE_CONFIRM_TRANSFER" shortDescription="DESTRUCTIVE: delete verified saved prefix only. Requires explicit ConfirmKey=165; Sent OK is not board confirmation">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="96" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+                <ArgumentList><Argument name="BootId" argumentTypeRef="TransferBoot_Type" /><Argument name="TransferId" argumentTypeRef="TransferId_Type" /><Argument name="RequestId" argumentTypeRef="TransferU32_Type" /><Argument name="Digest" argumentTypeRef="TransferU32_Type" /><Argument name="RecordCount" argumentTypeRef="TransferCount_Type" /><Argument name="ConfirmKey" argumentTypeRef="TransferConfirmKey_Type" /></ArgumentList>
+                <CommandContainer name="ARCHIVE_CONFIRM_TRANSFER"><EntryList>
+                    <FixedValueEntry name="TransferCommandId" binaryValue="34" sizeInBits="8" />
+                    <ArgumentRefEntry argumentRef="BootId" />
+                    <ArgumentRefEntry argumentRef="TransferId" />
+                    <ArgumentRefEntry argumentRef="RequestId" />
+                    <ArgumentRefEntry argumentRef="Digest" />
+                    <ArgumentRefEntry argumentRef="RecordCount" />
+                    <ArgumentRefEntry argumentRef="ConfirmKey" />
+                </EntryList><BaseContainer containerRef="CCSDSPacket" /></CommandContainer>
+            </MetaCommand>
+
+            <MetaCommand name="ARCHIVE_CANCEL_TRANSFER" shortDescription="Cancel matching session; records are retained">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="96" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+                <ArgumentList><Argument name="BootId" argumentTypeRef="TransferBoot_Type" /><Argument name="TransferId" argumentTypeRef="TransferId_Type" /><Argument name="RequestId" argumentTypeRef="TransferU32_Type" /><Argument name="Digest" argumentTypeRef="TransferU32_Type" /><Argument name="RecordCount" argumentTypeRef="TransferCount_Type" /></ArgumentList>
+                <CommandContainer name="ARCHIVE_CANCEL_TRANSFER"><EntryList>
+                    <FixedValueEntry name="TransferCommandId" binaryValue="35" sizeInBits="8" />
+                    <ArgumentRefEntry argumentRef="BootId" />
+                    <ArgumentRefEntry argumentRef="TransferId" />
+                    <ArgumentRefEntry argumentRef="RequestId" />
+                    <ArgumentRefEntry argumentRef="Digest" />
+                    <ArgumentRefEntry argumentRef="RecordCount" />
+                </EntryList><BaseContainer containerRef="CCSDSPacket" /></CommandContainer>
+            </MetaCommand>
+
+            <MetaCommand name="HK_SetInterval" shortDescription="HK interval seconds 1..60; unchanged wire command">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket">
+                    <ArgumentAssignmentList>
+                        <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                        <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                        <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                        <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="80" />
+                        <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                    </ArgumentAssignmentList>
+                </BaseMetaCommand>
+                <ArgumentList><Argument argumentTypeRef="HKIntervalSeconds_Type" name="CmdParam" /></ArgumentList>
+                <CommandContainer name="HK_SetInterval">
+                    <EntryList>
+                        <FixedValueEntry name="CommandId" binaryValue="01" sizeInBits="8" />
+                        <ArgumentRefEntry argumentRef="CmdParam" />
+                    </EntryList>
+                    <BaseContainer containerRef="CCSDSPacket" />
+                </CommandContainer>
+            </MetaCommand>
+
+            <MetaCommand name="PAYLOAD_SetRate" shortDescription="Payload rate 1..10; unchanged wire command">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket">
+                    <ArgumentAssignmentList>
+                        <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                        <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                        <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                        <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="112" />
+                        <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                    </ArgumentAssignmentList>
+                </BaseMetaCommand>
+                <ArgumentList><Argument argumentTypeRef="PayloadRate_Type" name="CmdParam" /></ArgumentList>
+                <CommandContainer name="PAYLOAD_SetRate">
+                    <EntryList>
+                        <FixedValueEntry name="CommandId" binaryValue="03" sizeInBits="8" />
+                        <ArgumentRefEntry argumentRef="CmdParam" />
+                    </EntryList>
+                    <BaseContainer containerRef="CCSDSPacket" />
+                </CommandContainer>
+            </MetaCommand>
+
+            <MetaCommand name="FDIR_SetMode" shortDescription="Explicit mode request 0..5; firmware deployment/fault guards apply; does not clear faults">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket">
+                    <ArgumentAssignmentList>
+                        <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                        <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                        <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                        <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="48" />
+                        <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                    </ArgumentAssignmentList>
+                </BaseMetaCommand>
+                <ArgumentList><Argument argumentTypeRef="SystemMode_Type" name="CmdParam" /></ArgumentList>
+                <CommandContainer name="FDIR_SetMode">
+                    <EntryList>
+                        <FixedValueEntry name="CommandId" binaryValue="52" sizeInBits="8" />
+                        <ArgumentRefEntry argumentRef="CmdParam" />
+                    </EntryList>
+                    <BaseContainer containerRef="CCSDSPacket" />
+                </CommandContainer>
+            </MetaCommand>
+            <MetaCommand name="FDIR_RearmBoot" shortDescription="PER-BOOT recovery approval, not a mode request or fault clear. Requires 30s health and explicit key. Queued is not COMPLETE; firmware leaves SAFE.">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="48" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+                <ArgumentList>
+                    <Argument argumentTypeRef="TransferId_Type" name="BootCounter" />
+                    <Argument argumentTypeRef="TransferConfirmKey_Type" name="ConfirmKey" />
+                </ArgumentList>
+                <CommandContainer name="FDIR_RearmBoot"><EntryList>
+                    <FixedValueEntry binaryValue="53" sizeInBits="8" />
+                    <ArgumentRefEntry argumentRef="BootCounter" />
+                    <ArgumentRefEntry argumentRef="ConfirmKey" />
+                </EntryList></CommandContainer>
+            </MetaCommand>
+            <MetaCommand name="ADCS_SetMode" shortDescription="Explicit local SAFE=0, DETUMBLE=1, NOMINAL=2; live firmware global/EPS guards apply">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="16" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+                <ArgumentList><Argument argumentTypeRef="ADCSMode_Type" name="CmdParam" /></ArgumentList>
+                <CommandContainer name="ADCS_SetMode"><EntryList>
+                    <FixedValueEntry binaryValue="01" sizeInBits="8" />
+                    <ArgumentRefEntry argumentRef="CmdParam" />
+                </EntryList></CommandContainer>
+            </MetaCommand>
+            <MetaCommand name="PAYLOAD_Init" shortDescription="Explicit OFF/SAFE to STANDBY; no archive/fault history clear">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="112" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+                <CommandContainer name="PAYLOAD_Init"><EntryList>
+                    <FixedValueEntry binaryValue="00" sizeInBits="8" />
+                </EntryList></CommandContainer>
+            </MetaCommand>
+            <MetaCommand name="PAYLOAD_Start" shortDescription="Explicit STANDBY to ACTIVE; live global/EPS/PDU guards apply">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="112" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+                <CommandContainer name="PAYLOAD_Start"><EntryList>
+                    <FixedValueEntry binaryValue="01" sizeInBits="8" />
+                </EntryList></CommandContainer>
+            </MetaCommand>
+            <MetaCommand name="PAYLOAD_Stop" shortDescription="Explicit ACTIVE to STANDBY; retains generated-byte history and archive">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="112" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+                <CommandContainer name="PAYLOAD_Stop"><EntryList>
+                    <FixedValueEntry binaryValue="02" sizeInBits="8" />
+                </EntryList></CommandContainer>
+            </MetaCommand>
+            <MetaCommand name="PAYLOAD_Reset" shortDescription="Explicit local ERROR to OFF; clears only payload error counter, preserves archive and global fault/NVS history; not a board reset">
+                <BaseMetaCommand metaCommandRef="CCSDSPacket"><ArgumentAssignmentList>
+                    <ArgumentAssignment argumentName="CCSDS_Version" argumentValue="0" />
+                    <ArgumentAssignment argumentName="CCSDS_Type" argumentValue="TC" />
+                    <ArgumentAssignment argumentName="CCSDS_Sec_Hdr_Flag" argumentValue="NotPresent" />
+                    <ArgumentAssignment argumentName="CCSDS_APID" argumentValue="112" />
+                    <ArgumentAssignment argumentName="CCSDS_Group_Flags" argumentValue="Standalone" />
+                </ArgumentAssignmentList></BaseMetaCommand>
+                <CommandContainer name="PAYLOAD_Reset"><EntryList>
+                    <FixedValueEntry binaryValue="04" sizeInBits="8" />
+                </EntryList></CommandContainer>
+            </MetaCommand>
+        </MetaCommandSet>
+    </CommandMetaData>
+</SpaceSystem>

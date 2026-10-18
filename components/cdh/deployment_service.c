@@ -2,30 +2,28 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "state_manager.h"
-#include "satellite_types.h"
+#include "system_mode.h"
 #include <stdio.h>
 
 void vDeploymentTask(void *pvParameters) {
-    // REALITY: 30 Minutes (1800s)
-    // SIMULATION: 10 Seconds for home testing
+    // Demonstration timing only; no physical actuator/sensor or flight-rule claim.
     const uint32_t DEPLOY_DELAY_MS = 10000; 
 
-    printf("DEPLOY: Satellite ejected. Starting safety silence period (%lu ms)...\n", DEPLOY_DELAY_MS);
-    
-    set_system_mode(MODE_INITIAL_BOOT);
+    printf("DEPLOY: Simulation starting safety wait (%lu ms)...\n", (unsigned long)DEPLOY_DELAY_MS);
 
     vTaskDelay(pdMS_TO_TICKS(DEPLOY_DELAY_MS));
 
-    printf("DEPLOY: Silence period over. Deploying Antennas (Activating Burn Wire)...\n");
+    printf("DEPLOY: Simulation safety wait over; simulating deployment (no burn-wire output).\n");
     
     // Simulate the physical deployment
     vTaskDelay(pdMS_TO_TICKS(2000)); 
 
-    printf("DEPLOY: Antennas Deployed! Entering MODE_NOMINAL.\n");
-    
-    // Now we allow the satellite to start its normal life
-    set_system_mode(MODE_NOMINAL);
+    // Retry only bookkeeping; never repeat the simulated safety/deployment waits.
+    while (!SYSTEM_MODE_CompleteDeployment()) {
+        printf("DEPLOY: Completion record unavailable; retrying in 100 ms.\n");
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    printf("DEPLOY: Simulation completion recorded; existing safety-mode decisions preserved.\n");
 
     // Deployment is a one-time thing, so we delete this task to free RAM
     vTaskDelete(NULL); 

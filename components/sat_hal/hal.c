@@ -9,17 +9,17 @@
 
 static uint32_t s_mock_registers[TOTAL_MOCK_REGS] = {0};
 
+// Every uint8_t address is valid. Changing the bank size requires revisiting
+// this API, rather than retaining an always-true runtime bounds check.
+_Static_assert(TOTAL_MOCK_REGS == UINT8_MAX + 1U,
+               "The mock register bank must cover every uint8_t address");
+
 uint32_t HAL_REG_Read(uint8_t address) {
-    if ((size_t)address < TOTAL_MOCK_REGS) {
-        return s_mock_registers[address];
-    }
-    return 0xFFFFFFFF; // Return error state
+    return s_mock_registers[address];
 }
 
 void HAL_REG_Write(uint8_t address, uint32_t value) {
-    if ((size_t)address < TOTAL_MOCK_REGS) {
-        s_mock_registers[address] = value;
-    }
+    s_mock_registers[address] = value;
 }
 
 

@@ -1,9 +1,10 @@
 idf_component_register(
     SRCS 
 	"ccsds_packet.c"
-	"comms_frame.c"
 	"yamcs_interface.c"
 	"yamcs_log.c"
+	"link_retry.c"
     INCLUDE_DIRS "."
-	REQUIRES lwip freertos
+    REQUIRES fsw_common
+    PRIV_REQUIRES lwip freertos time
 )

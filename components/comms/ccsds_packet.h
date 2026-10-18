@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "mission_ids.h"
 
 // CCSDS Primary Header (6 bytes / 48 bits)
 typedef struct __attribute__((packed)) {
@@ -16,17 +17,6 @@ typedef struct __attribute__((packed)){
     uint64_t mission_time;     // MET in milliseconds 
 } CCSDS_SecondaryHeader_t;
 
-// Standard APID (Application Process Identifiers)
-#define APID_ADCS    0x010
-#define APID_EPS     0x020
-#define APID_FDIR    0x030
-#define APID_CDHS    0x040
-#define APID_HK      0x050
-#define APID_ARCHIVE 0x060
-#define APID_PAYLOAD 0x070
-#define APID_IDLE    0x7FF    // CCSDS Standard for Idle/Fill packets
-
-
 // Extract APID from a raw buffer
 uint16_t CCSDS_GetAPID(const uint8_t* buffer);
 
@@ -34,6 +24,13 @@ uint16_t CCSDS_GetAPID(const uint8_t* buffer);
 // Check if the Secondary Header Flag is set
 bool CCSDS_HasSecondaryHeader(const uint8_t* buffer);
 
+// Project-sized unsegmented packet: primary version/type/secondary flag and
+// exact length agreement only. Does not authenticate, check CRC or decode data.
+bool CCSDS_ValidateUnsegmentedPacket(const uint8_t *buffer, uint16_t length,
+                                    bool telecommand, bool secondary_header);
+
+// Legacy demo envelope: 8-byte BE mission ms, not active UDP. Caller owns output
+// capacity (14 + app_data_len). Demo sequence remains zero; invalid input is ignored.
 void CCSDS_WrapTelemetry(uint16_t apid, const uint8_t* app_data, uint16_t app_data_len, uint8_t* out_buffer);
 
 

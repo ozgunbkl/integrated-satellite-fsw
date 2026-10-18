@@ -2,7 +2,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "satellite_types.h"
-#include "state_manager.h"
+#include "system_mode.h"
 #include "watchdog.h"
 #include "archive_service.h" 
 #include "payload_service.h"
@@ -15,7 +15,7 @@ void vDataLoggerTask(void *pvParameters){
     HK_Telemetry_t rx_log_packet;
     const TickType_t xLogWaitTime = pdMS_TO_TICKS(100);
 
-    Archive_Init(); // Initialize the archive system
+    // app_main initializes the archive before starting any task; do not reset it here.
 
     printf("DATA LOGGER: Task initialized, monitoring telemetry queue.\n");
 
@@ -30,42 +30,38 @@ void vDataLoggerTask(void *pvParameters){
                 // Optional: low-frequency debug log
                 // printf("DATA LOGGER: Record saved at T: %lu\n", rx_log_packet.timestamp);
             } else {
-                // Archive_WriteRecord already reported the fault to FDIR, 
-                // Just print here for your local debug.
+                // A full archive reports its existing FDIR warning; lock failure only
+                // returns UNAVAILABLE. The dequeued sample is dropped, not retried.
                 printf("DATA LOGGER: Archiving failed! Error: %d\n", write_status);
             }
         }
 
-        // --- STEP B: REAL DOWNLINK RETRIEVAL ---
-        // Instead of a simple loop, pull real data from your simulated flash
-        if (g_downlink_mode == DOWNLINK_ACTIVE && get_system_mode() == MODE_NOMINAL) {
-            printf("DATA LOGGER: --- DOWNLINK BURST ACTIVE --- \n");
-            
-            bool burst_successful = true; // Track if we actually sent data
+        // --- STEP B: ARCHIVE READOUT ---
+        // The current path only reads records locally; it does not transmit them.
+        SystemMode_t current_mode = SYSTEM_MODE_Get();
+        if (g_downlink_mode == DOWNLINK_ACTIVE &&
+            (current_mode == MODE_NOMINAL || current_mode == MODE_DEGRADED)) {
+            printf("DATA LOGGER: --- ARCHIVE READOUT ACTIVE ---\n");
+
             ArchiveRecord_t out_record;
             for (uint16_t i = 0; i < 50; i++) {
-                // Use your ReadRecord logic (which includes the CRC check!)
                 ArchiveStatus_t read_status = Archive_ReadRecord(i, &out_record);
 
                 if (read_status == ARCHIVE_OK) {
-                    printf("DATA LOGGER: Sending Archived Packet %d [ID: 0x%02X, CRC: 0x%04X]\n", 
+                    printf("DATA LOGGER: Archive record %d [ID: 0x%02X, CRC: 0x%04X]\n",
                             i + 1, out_record.record_id, out_record.crc);
-                    // Next step would be pushing 'out_record' to a Radio/Comms Queue
-                } else if (read_status == ARCHIVE_EMPTY || read_status == ARCHIVE_ERR_NOT_FOUND) { 
-                    // If we hit an empty slot, stop the loop early!
+                } else if (read_status == ARCHIVE_EMPTY || read_status == ARCHIVE_ERR_NOT_FOUND) {
                     printf("DATA LOGGER: End of stored data reached at index %d.\n", i);
-                    break; 
+                    break;
+                } else {
+                    printf("DATA LOGGER: Archive read failed at index %d (status %d).\n",
+                           i, read_status);
+                    break;
                 }
             }
-            
-            printf("DATA LOGGER: --- DOWNLINK COMPLETE. ---\n");
-            g_downlink_mode = DOWNLINK_INACTIVE;
 
-            // --- AUTO-CLEAR LOGIC ---
-            if (burst_successful) {
-                printf("DATA LOGGER: Ground Station ACK received. Clearing Archive to free space...\n");
-                Archive_Reset(); // This sets write_index back to 0
-            }
+            printf("DATA LOGGER: Archive readout finished; records retained until transfer is confirmed.\n");
+            g_downlink_mode = DOWNLINK_INACTIVE;
         }
 
         // --- STEP C: PERIODIC SCIENCE LOGGING ---

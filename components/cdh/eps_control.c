@@ -2,13 +2,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "eps_control.h"
-#include "state_manager.h"
+#include "system_mode.h"
 #include "watchdog.h"
 #include "eps_telemetry.h"
 #include "eps_commands.h"
 #include "fdir_service.h"
 #include "time_service.h"
 #include <stdio.h>
+#include <math.h>
 
 #define CRITICAL_BUS_VOLTAGE 2.5f
 
@@ -18,15 +19,15 @@ void vEPSMonitoringTask(void *pvParameters) {
     printf("CDH EPS Monitor: Now linked to EPS Subsystem Telemetry.\n");
 
     for(;;) {
-        // 1. GET REAL DATA from the EPS Subsystem (not a local variable)
+        // Snapshot shared EPS telemetry; the current project supplies simulated values.
         if(xSemaphoreTake(xEPSDataMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             float real_voltage = g_eps_telemetry.f_BusVoltage;
             xSemaphoreGive(xEPSDataMutex);
-            SystemMode_t current_mode = get_system_mode();
+            SystemMode_t current_mode = SYSTEM_MODE_Get();
 
-            // 2. GLOBAL FDIR LOGIC
-            // If the EPS Subsystem is struggling, CDH triggers the Global Critical Mode
-            if(real_voltage < CRITICAL_BUS_VOLTAGE && current_mode != MODE_CRITICAL) {
+            // Report the power fault before requesting the critical power mode.
+            const bool invalid_voltage = !isfinite(real_voltage);
+            if(invalid_voltage || (real_voltage < CRITICAL_BUS_VOLTAGE && current_mode != MODE_CRITICAL)) {
                 
                 // --- NEW: REPORT TO THE SYSTEM-WIDE LOG ---
                 FaultReport_t global_pwr_fault = {
@@ -37,14 +38,31 @@ void vEPSMonitoringTask(void *pvParameters) {
                 };
                 FDIR_ReportFault(global_pwr_fault);
 
-                // 3. GLOBAL RECOVERY
-                set_system_mode(MODE_CRITICAL);
-                printf("CDH: Emergency! Satellite forced to MODE_CRITICAL.\n");
+                // FDIR may have changed the mode to SAFE. Use a fresh snapshot,
+                // preserve EMERGENCY, and never overwrite a concurrent decision.
+                const SystemMode_t fault_mode = SYSTEM_MODE_Get();
+                if (invalid_voltage) {
+                    // No measured evidence for the <2.5 V CRITICAL transition.
+                    // FDIR has already inhibited operation, preserving stronger modes.
+                    printf("CDH: Invalid bus voltage; power fault reported, no recovery authorized.\n");
+                } else if (fault_mode == MODE_EMERGENCY) {
+                    printf("CDH: Low voltage; observed MODE_EMERGENCY, power transition skipped.\n");
+                } else if (fault_mode != MODE_CRITICAL) {
+                    if (SYSTEM_MODE_Transition(fault_mode, MODE_CRITICAL)) {
+                        printf("CDH: Low voltage! Entered MODE_CRITICAL.\n");
+                    } else {
+                        printf("CDH: CRITICAL transition not applied (mode changed or lock unavailable); recheck next cycle.\n");
+                    }
+                }
             }
 
             else if (real_voltage > 6.0f && current_mode == MODE_CRITICAL) {
-                set_system_mode(MODE_NOMINAL);
-                printf("CDH: Power Recovery detected (%.2fV). Transitioning to MODE_NOMINAL.\n", real_voltage);
+                // Voltage recovery alone cannot authorize normal operations.
+                if (SYSTEM_MODE_Transition(MODE_CRITICAL, MODE_SAFE)) {
+                    printf("CDH: Power Recovery detected (%.2fV). Entered MODE_SAFE; MODE_NOMINAL not requested.\n", real_voltage);
+                } else {
+                    printf("CDH: SAFE recovery transition not applied (mode changed or lock unavailable); recheck next cycle.\n");
+                }
             }
         }
 

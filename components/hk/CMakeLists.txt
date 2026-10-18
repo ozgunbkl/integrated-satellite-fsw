@@ -1,5 +1,5 @@
 idf_component_register(
     SRCS "hk_service.c"
     INCLUDE_DIRS "."
-    REQUIRES adcs eps comms cdh freertos
+    PRIV_REQUIRES adcs eps comms freertos lwip fsw_common
 )

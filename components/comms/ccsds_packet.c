@@ -1,53 +1,42 @@
 #include "ccsds_packet.h"
 #include "time_service.h"
 #include <string.h>
-#include <arpa/inet.h>   // For htons/ntohs (Big-Endian conversion)
 
-uint16_t CCSDS_GetAPID(const uint8_t* buffer){
-    if(!buffer) return 0;
-
-    // Map the buffer to the struct
-    CCSDS_PrimaryHeader_t* hdr = (CCSDS_PrimaryHeader_t*)buffer;
-    
-    // 1. Convert from Big-Endian (Network) to Little-Endian (Host)
-    uint16_t id = ntohs(hdr->packet_id);
-
-    // 2. Mask the last 11 bits (0x07FF = 0000 0111 1111 1111)
-    return (id & 0x07FF);
+static uint16_t read_be16(const uint8_t *bytes) {
+    return (uint16_t)(((uint16_t)bytes[0] << 8) | bytes[1]);
 }
 
-bool CCSDS_HasSecondaryHeader(const uint8_t* buffer) {
-    if (!buffer) return false;
-    
-    CCSDS_PrimaryHeader_t* hdr = (CCSDS_PrimaryHeader_t*)buffer;
-    uint16_t id = ntohs(hdr->packet_id);
-    
-    // Secondary Header Flag is bit 11 (counting from right, 0-indexed)
-    // Mask: 0x0800 (0000 1000 0000 0000)
-    return (id & 0x0800) != 0;
+static void write_be16(uint8_t *bytes, uint16_t value) {
+    bytes[0] = (uint8_t)(value >> 8);
+    bytes[1] = (uint8_t)value;
 }
 
+uint16_t CCSDS_GetAPID(const uint8_t *buffer) {
+    return buffer == NULL ? 0 : (uint16_t)(read_be16(buffer) & 0x07FFU);
+}
 
-void CCSDS_WrapTelemetry(uint16_t apid, const uint8_t* app_data, uint16_t app_data_len, uint8_t* out_buffer){
-    CCSDS_PrimaryHeader_t* pri_hdr = (CCSDS_PrimaryHeader_t*)out_buffer;
-    CCSDS_SecondaryHeader_t* sec_hdr = (CCSDS_SecondaryHeader_t*)(out_buffer + sizeof(CCSDS_PrimaryHeader_t));
+bool CCSDS_HasSecondaryHeader(const uint8_t *buffer) {
+    return buffer != NULL && (read_be16(buffer) & 0x0800U) != 0;
+}
 
-    // 1. Build Packet ID (Version 0, Type 1 (TM), Sec Hdr 1, APID)
-    // 0x1800 sets the Type bit and the Secondary Header flag bit
-    uint16_t id = 0x1800 | (apid & 0x07FF);
-    pri_hdr ->packet_id = htons(id);  // Flip to big-endian
-    
-    // 2. Sequence Control (For now, let's just set "Unsegmented" flags 0xC000)
-    pri_hdr->sequence_ctrl = htons(0xC000);
+bool CCSDS_ValidateUnsegmentedPacket(const uint8_t *buffer, uint16_t length,
+                                    bool telecommand, bool secondary_header) {
+    if (buffer == NULL || length < sizeof(CCSDS_PrimaryHeader_t) + 1U) return false;
+    const uint16_t expected = (telecommand ? 0x1000U : 0U) | (secondary_header ? 0x0800U : 0U);
+    if ((read_be16(buffer) & 0xF800U) != expected ||
+        (read_be16(buffer + 2) & 0xC000U) != 0xC000U) return false;
+    // Widen before adding: 0xFFFF must not wrap into an apparently short packet.
+    return (uint32_t)length == (uint32_t)read_be16(buffer + 4) + sizeof(CCSDS_PrimaryHeader_t) + 1U;
+}
 
-    // 3. Length: (Sec Hdr size + App Data size) - 1
-    uint16_t total_len = sizeof(CCSDS_SecondaryHeader_t) + app_data_len - 1;
-    pri_hdr->packet_length = htons(total_len);
-
-    // 4. Set the Time in Secondary Header
-    uint64_t now = TIME_GetMilliseconds();
-    sec_hdr->mission_time = __builtin_bswap64(now);
-
-    // 5. Copy the actual data (ADCS, EPS, etc.) after the headers
-    memcpy(out_buffer + sizeof(CCSDS_PrimaryHeader_t) + sizeof(CCSDS_SecondaryHeader_t), app_data, app_data_len);
+void CCSDS_WrapTelemetry(uint16_t apid, const uint8_t *app_data, uint16_t app_data_len, uint8_t *out_buffer) {
+    if (out_buffer == NULL || (app_data == NULL && app_data_len != 0U) ||
+        apid > 0x07FFU || apid == APID_IDLE || app_data_len > UINT16_MAX - 7U) return;
+    // Version 0, Type 0 (TM), Secondary Header 1. TC would set bit 12.
+    write_be16(out_buffer, (uint16_t)(0x0800U | apid));
+    write_be16(out_buffer + 2, 0xC000U); // Legacy demo sequence is always zero.
+    write_be16(out_buffer + 4, (uint16_t)(8U + app_data_len - 1U));
+    const uint64_t now = TIME_GetMilliseconds();
+    for (unsigned i = 0; i < 8; ++i) out_buffer[6 + i] = (uint8_t)(now >> (56U - 8U * i));
+    if (app_data_len != 0U) memcpy(out_buffer + 14, app_data, app_data_len);
 }

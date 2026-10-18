@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "satellite_types.h"
+#include "system_mode.h"
 #include "utils.h"
 #include "ccsds_packet.h"
 #include "commands.h"

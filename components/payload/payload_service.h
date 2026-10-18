@@ -27,7 +27,9 @@ typedef enum {
     PL_OK,
     PL_ERR_INVALID_STATE,
     PL_ERR_ALREADY_INITIALIZED,
-    PL_ERR_HAL_FAILURE
+    PL_ERR_HAL_FAILURE,
+    PL_ERR_INHIBITED,
+    PL_ERR_UNAVAILABLE
 } PayloadStatus_t;
 
 // Telemetry for Housekeeping
@@ -36,7 +38,7 @@ typedef struct {
     uint32_t bytes_generated;
     uint16_t last_cmd_received;
     uint16_t error_counter;
-    uint8_t data_rate; // e.g., 1-10 Hz
+    uint8_t data_rate; // Explicit 1..10 Hz upper bound; 0 = legacy unconfigured updates.
 } PayloadTelemetry_t;
 
 // Public API

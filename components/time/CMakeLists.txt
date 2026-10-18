@@ -1,4 +1,5 @@
 idf_component_register(
-    SRCS "time_service.c"
+    SRCS "time_service.c" "time_port_esp32.c"
     INCLUDE_DIRS "."
+    PRIV_REQUIRES esp_timer
 )

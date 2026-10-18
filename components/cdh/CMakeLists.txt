@@ -3,15 +3,13 @@ idf_component_register(
         "deployment_service.c"
         "tc_proc.c"
 	"tc_udp_rx.c"
-        "test_state_manager.c"
         "cmd_inject.c"
         "cdhs_router.c"
 	"data_logger.c"
 	"eps_control.c"
 	"tm_gen.c"
-	"tm_manager.c"
 	"utils.c"
-	"watchdog.c"
     INCLUDE_DIRS "."
-    REQUIRES hk lwip freertos
+    PRIV_REQUIRES fdir hk lwip freertos system_mode comms fsw_common
+                  esp_system adcs archive eps payload time watchdog recovery
 )
